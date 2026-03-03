@@ -427,14 +427,34 @@ function initTerminal(): void {
       const files: string[] = [];
       const seen = new Set<string>();
 
+      const canonicalizeForDedup = (p: string): string => {
+        let s = p.trim();
+        // Unify separators so C:\x and C:/x dedup
+        s = s.replace(/\\/g, "/");
+        // Normalize Windows drive letter to lowercase
+        if (/^[A-Za-z]:\//.test(s)) {
+          s = s[0].toLowerCase() + s.slice(1);
+        }
+        // Remove trailing slash (except root)
+        if (s.length > 1) {
+          s = s.replace(/\/$/, "");
+        }
+        return s;
+      };
+
       const addFile = (filePath: string | null | undefined) => {
-        const normalizedPath = filePath?.trim();
-        if (!normalizedPath || seen.has(normalizedPath)) {
+        const trimmed = filePath?.trim();
+        if (!trimmed) {
           return;
         }
 
-        seen.add(normalizedPath);
-        files.push(normalizedPath);
+        const canonical = canonicalizeForDedup(trimmed);
+        if (!canonical || seen.has(canonical)) {
+          return;
+        }
+
+        seen.add(canonical);
+        files.push(canonical);
       };
 
       const extractFilePathFromValue = (value: string): string | null => {

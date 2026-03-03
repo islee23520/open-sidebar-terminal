@@ -268,7 +268,10 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
         if (existing) {
           this.instanceStore.upsert({
             ...existing,
-            runtime: { ...existing.runtime, terminalKey: this.activeInstanceId },
+            runtime: {
+              ...existing.runtime,
+              terminalKey: this.activeInstanceId,
+            },
           });
         } else {
           // Fresh install: no record exists yet — create one so getActive() works
@@ -874,8 +877,12 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
       return file;
     });
 
+    const dedupedFiles = [
+      ...new Set(normalizedFiles.map((p) => path.normalize(p))),
+    ];
+
     if (shiftKey) {
-      const fileRefs = normalizedFiles
+      const fileRefs = dedupedFiles
         .map((file) => `@${vscode.workspace.asRelativePath(file)}`)
         .join(" ");
       this.logger.info(`[PROVIDER] Writing with @: ${fileRefs}`);
@@ -884,7 +891,7 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
         fileRefs + " ",
       );
     } else {
-      const filePaths = normalizedFiles
+      const filePaths = dedupedFiles
         .map((file) => vscode.workspace.asRelativePath(file))
         .join(" ");
       this.logger.info(`[PROVIDER] Writing without @: ${filePaths}`);
