@@ -50,7 +50,10 @@ export class ExtensionLifecycle {
       if (active?.runtime.terminalKey) {
         return active.runtime.terminalKey;
       }
-      return `opencode-instance-${active?.config.id}`;
+      if (active) {
+        return active.config.id;
+      }
+      return ExtensionLifecycle.TERMINAL_ID;
     } catch {
       return ExtensionLifecycle.TERMINAL_ID;
     }
@@ -204,7 +207,7 @@ export class ExtensionLifecycle {
             }, 100);
           }
 
-          vscode.window.showInformationMessage("Sent to OpenCode");
+          vscode.window.setStatusBarMessage("$(check) Sent to OpenCode", 3000);
         }
       },
     );
@@ -232,7 +235,7 @@ export class ExtensionLifecycle {
             }, 100);
           }
 
-          vscode.window.showInformationMessage(`Sent ${fileRef}`);
+          vscode.window.setStatusBarMessage(`$(check) Sent ${fileRef}`, 3000);
         } else {
           this.sendTerminalCwd();
         }
@@ -279,7 +282,7 @@ export class ExtensionLifecycle {
             }, 100);
           }
 
-          vscode.window.showInformationMessage("Sent all open files");
+          vscode.window.setStatusBarMessage("$(check) Sent all open files", 3000);
         }
       },
     );
@@ -287,14 +290,21 @@ export class ExtensionLifecycle {
     // Send file/folder from explorer context menu
     const sendFileToTerminalCommand = vscode.commands.registerCommand(
       "opencodeTui.sendFileToTerminal",
-      (uri: vscode.Uri | vscode.Uri[]) => {
-        if (!uri || !this.contextSharingService) {
+      (...args: unknown[]) => {
+        if (!this.contextSharingService) {
           return;
         }
 
-        // Handle array case (if VS Code ever passes it)
-        const uris = Array.isArray(uri) ? uri : [uri];
-
+        // VS Code explorer context menu passes (clickedUri, allSelectedUris)
+        // When multiple files are selected, the last argument is a Uri[]
+        let uris: vscode.Uri[];
+        if (args.length > 0 && Array.isArray(args[args.length - 1])) {
+          uris = args[args.length - 1] as vscode.Uri[];
+        } else if (args.length > 0 && args[0] instanceof vscode.Uri) {
+          uris = [args[0]];
+        } else {
+          return;
+        }
         fileSendAccumulator.push(...uris);
 
         if (fileSendTimeout) {
@@ -334,7 +344,7 @@ export class ExtensionLifecycle {
             uniqueUris.length > 1
               ? `Sent ${uniqueUris.length} files`
               : `Sent ${fileRefs[0]}`;
-          vscode.window.showInformationMessage(message);
+          vscode.window.setStatusBarMessage(`$(check) ${message}`, 3000);
 
           fileSendAccumulator = [];
         }, 100);
@@ -582,7 +592,7 @@ export class ExtensionLifecycle {
       }, 100);
     }
 
-    vscode.window.showInformationMessage(`Sent ${reference}`);
+    vscode.window.setStatusBarMessage(`$(check) Sent ${reference}`, 3000);
   }
 
   async deactivate(): Promise<void> {

@@ -257,6 +257,34 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
       this.activeInstanceId,
     );
 
+    // Ensure the instance store record has the terminal key so that
+    // ExtensionLifecycle.getActiveTerminalId() can resolve it correctly.
+    // Without this, the store may be empty (fresh install) or the record
+    // may lack a terminalKey, causing all send commands to target a
+    // non-existent terminal ID.
+    if (this.instanceStore) {
+      try {
+        const existing = this.instanceStore.get(this.activeInstanceId);
+        if (existing) {
+          this.instanceStore.upsert({
+            ...existing,
+            runtime: { ...existing.runtime, terminalKey: this.activeInstanceId },
+          });
+        } else {
+          // Fresh install: no record exists yet — create one so getActive() works
+          this.instanceStore.upsert({
+            config: { id: this.activeInstanceId },
+            runtime: { terminalKey: this.activeInstanceId, port },
+            state: "connected",
+          });
+        }
+      } catch (err) {
+        this.logger.warn(
+          `[OpenCodeTuiProvider] Failed to update instance store with terminal key: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
     this.dataListener = this.terminalManager.onData((event) => {
       if (event.id === this.activeInstanceId) {
         this._view?.webview.postMessage({

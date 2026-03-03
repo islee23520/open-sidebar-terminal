@@ -2,7 +2,7 @@
   "name": "opencode-sidebar-tui",
   "displayName": "OpenCode Sidebar TUI",
   "description": "Automatically render OpenCode TUI in VS Code sidebar with full terminal support",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "publisher": "islee23520",
   "icon": "icon.png",
   "engines": {
