@@ -6,10 +6,19 @@ import {
   InstanceStore,
 } from "../services/InstanceStore";
 import { InstanceController } from "../services/InstanceController";
+import { CliToolType } from "../types";
 
 type DashboardMessage = {
-  action?: "connect" | "disconnect" | "restart" | "focus" | "remove" | "openInNewWindow";
+  action?:
+    | "connect"
+    | "disconnect"
+    | "restart"
+    | "focus"
+    | "remove"
+    | "openInNewWindow"
+    | "newInstance";
   instanceId?: InstanceId;
+  toolId?: CliToolType;
 };
 
 type DashboardInstanceDto = {
@@ -22,6 +31,23 @@ type DashboardInstanceDto = {
   model?: string;
   messageCount?: number;
   version?: string;
+  toolId?: CliToolType;
+};
+
+const TOOL_ICONS: Record<CliToolType, string> = {
+  opencode: "$(terminal)",
+  claude: "$(comment)",
+  codex: "$(code)",
+  gemini: "$(star)",
+  aider: "$(diff)",
+};
+
+const TOOL_COLORS: Record<CliToolType, string> = {
+  opencode: "#3b82f6",
+  claude: "#d97706",
+  codex: "#10b981",
+  gemini: "#8b5cf6",
+  aider: "#ec4899",
 };
 
 export class InstancesDashboardProvider
@@ -118,6 +144,21 @@ export class InstancesDashboardProvider
       background: var(--vscode-editor-background);
     }
 
+    .header {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    select {
+      background: var(--vscode-dropdown-background);
+      color: var(--vscode-dropdown-foreground);
+      border: 1px solid var(--vscode-dropdown-border);
+      padding: 4px;
+      border-radius: 2px;
+      flex: 1;
+    }
+
     #instances {
       display: flex;
       flex-direction: column;
@@ -149,6 +190,18 @@ export class InstancesDashboardProvider
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .tool-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #fff;
+      font-weight: bold;
+      text-transform: uppercase;
     }
 
     .badge {
@@ -200,6 +253,24 @@ export class InstancesDashboardProvider
   </style>
 </head>
 <body>
+  <div class="header">
+    <select id="tool-filter">
+      <option value="all">All Tools</option>
+      <option value="opencode">OpenCode</option>
+      <option value="claude">Claude</option>
+      <option value="codex">Codex</option>
+      <option value="gemini">Gemini</option>
+      <option value="aider">Aider</option>
+    </select>
+    <select id="new-instance-tool">
+      <option value="" disabled selected>+ New Instance</option>
+      <option value="opencode">OpenCode</option>
+      <option value="claude">Claude</option>
+      <option value="codex">Codex</option>
+      <option value="gemini">Gemini</option>
+      <option value="aider">Aider</option>
+    </select>
+  </div>
   <div id="instances"></div>
 
   <script nonce="${nonce}">
@@ -214,6 +285,26 @@ export class InstancesDashboardProvider
       resolving: "#ffc107",
       stopping: "#ffc107",
     };
+
+    const toolColors = {
+      opencode: '#3b82f6',
+      claude: '#d97706',
+      codex: '#10b981',
+      gemini: '#8b5cf6',
+      aider: '#ec4899'
+    };
+
+    const toolIcons = {
+      opencode: '$(terminal)',
+      claude: '$(comment)',
+      codex: '$(code)',
+      gemini: '$(star)',
+      aider: '$(diff)'
+    };
+
+    let currentInstances = [];
+    let currentActiveId = undefined;
+    let currentFilter = 'all';
 
     function escapeHtml(value) {
       return String(value)
@@ -232,24 +323,26 @@ export class InstancesDashboardProvider
         '<button data-action="restart" data-id="' + id + '">Restart</button>',
         '<button data-action="focus" data-id="' + id + '">Focus</button>',
         '<button data-action="openInNewWindow" data-id="' + id + '">Open in New Window</button>',
+        '<button data-action="remove" data-id="' + id + '">Remove</button>',
       ].join("");
     }
 
-    function render(payload) {
+    function render() {
       const container = document.getElementById("instances");
       if (!container) {
         return;
       }
 
-      const instances = Array.isArray(payload.instances) ? payload.instances : [];
-      const activeId = payload.activeId;
+      const filteredInstances = currentFilter === 'all' 
+        ? currentInstances 
+        : currentInstances.filter(i => i.toolId === currentFilter);
 
-      if (instances.length === 0) {
+      if (filteredInstances.length === 0) {
         container.innerHTML = '<div class="empty">No instances found.</div>';
         return;
       }
 
-      container.innerHTML = instances
+      container.innerHTML = filteredInstances
         .map((instance) => {
           const label = escapeHtml(instance.label || instance.id);
           const state = escapeHtml(instance.state);
@@ -260,12 +353,19 @@ export class InstancesDashboardProvider
           const messageCount = instance.messageCount !== undefined ? String(instance.messageCount) : "-";
           const version = instance.version ? escapeHtml(instance.version) : "-";
           const error = instance.error ? '<div class="meta">error: ' + escapeHtml(instance.error) + '</div>' : "";
-          const isActive = activeId && activeId === instance.id;
+          const isActive = currentActiveId && currentActiveId === instance.id;
+          
+          const toolId = instance.toolId || 'opencode';
+          const toolColor = toolColors[toolId] || toolColors.opencode;
+          const toolIcon = toolIcons[toolId] || toolIcons.opencode;
 
           return [
             '<div class="instance-card' + (isActive ? ' active' : '') + '">',
             '<div class="row">',
-            '<div class="title">' + label + '</div>',
+            '<div class="title">',
+            '<span class="tool-badge" style="background:' + toolColor + ';" title="' + toolIcon + '">' + escapeHtml(toolId) + '</span>',
+            label,
+            '</div>',
             '<span class="badge" style="background:' + stateColor + ';">' + state + '</span>',
             '</div>',
             '<div class="meta">id: ' + escapeHtml(instance.id) + '</div>',
@@ -285,7 +385,22 @@ export class InstancesDashboardProvider
     window.addEventListener("message", (event) => {
       const message = event.data;
       if (message && message.type === "updateInstances") {
-        render(message);
+        currentInstances = Array.isArray(message.instances) ? message.instances : [];
+        currentActiveId = message.activeId;
+        render();
+      }
+    });
+
+    document.getElementById("tool-filter")?.addEventListener("change", (event) => {
+      currentFilter = event.target.value;
+      render();
+    });
+
+    document.getElementById("new-instance-tool")?.addEventListener("change", (event) => {
+      const toolId = event.target.value;
+      if (toolId) {
+        vscode.postMessage({ action: "newInstance", toolId });
+        event.target.value = ""; // reset selection
       }
     });
 
@@ -334,11 +449,30 @@ export class InstancesDashboardProvider
   }
 
   private async handleWebviewMessage(message: DashboardMessage): Promise<void> {
-    if (!message || !message.action || !message.instanceId) {
+    if (!message || !message.action) {
       return;
     }
 
     try {
+      if (message.action === "newInstance" && message.toolId) {
+        const newId = `instance-${Date.now()}`;
+        this.instanceStore.upsert({
+          config: {
+            id: newId,
+            toolId: message.toolId,
+            label: `New ${message.toolId} Instance`,
+          },
+          runtime: {},
+          state: "disconnected",
+        });
+        await this.instanceController?.spawn(newId);
+        return;
+      }
+
+      if (!message.instanceId) {
+        return;
+      }
+
       switch (message.action) {
         case "connect":
           await this.connectInstance(message.instanceId);
@@ -361,7 +495,7 @@ export class InstancesDashboardProvider
             await vscode.commands.executeCommand(
               "vscode.openFolder",
               vscode.Uri.parse(instance.config.workspaceUri),
-              { forceNewWindow: true }
+              { forceNewWindow: true },
             );
           }
           break;
@@ -371,10 +505,10 @@ export class InstancesDashboardProvider
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       this.outputChannel?.appendLine(
-        `[InstancesDashboardProvider] Action '${message.action}' failed for '${message.instanceId}': ${errorMessage}`,
+        `[InstancesDashboardProvider] Action '${message.action}' failed: ${errorMessage}`,
       );
       vscode.window.showErrorMessage(
-        `Failed to ${message.action} instance '${message.instanceId}': ${errorMessage}`,
+        `Failed to ${message.action}: ${errorMessage}`,
       );
     }
   }
@@ -439,6 +573,7 @@ export class InstancesDashboardProvider
       model: record.health?.model,
       messageCount: record.health?.messageCount,
       version: record.health?.version,
+      toolId: record.config.toolId,
     };
   }
 
