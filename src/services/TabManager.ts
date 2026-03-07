@@ -209,6 +209,27 @@ export class TabManager {
     return this.getAllTabs().filter((tab) => tab.toolId === toolId);
   }
 
+  public nextTab(): void {
+    if (this.tabOrder.length <= 1 || !this.activeTabId) {
+      return;
+    }
+
+    const currentIndex = this.tabOrder.indexOf(this.activeTabId);
+    const nextIndex = (currentIndex + 1) % this.tabOrder.length;
+    this.setActiveTab(this.tabOrder[nextIndex]);
+  }
+
+  public previousTab(): void {
+    if (this.tabOrder.length <= 1 || !this.activeTabId) {
+      return;
+    }
+
+    const currentIndex = this.tabOrder.indexOf(this.activeTabId);
+    const previousIndex =
+      (currentIndex - 1 + this.tabOrder.length) % this.tabOrder.length;
+    this.setActiveTab(this.tabOrder[previousIndex]);
+  }
+
   public serialize(): TabManagerState {
     return {
       tabs: this.getAllTabs(),

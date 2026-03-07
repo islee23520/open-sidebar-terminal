@@ -111,6 +111,51 @@
         "title": "Select OpenCode Instance",
         "category": "OpenCode TUI",
         "icon": "$(server-environment)"
+      },
+      {
+        "command": "opencodeTui.createTab",
+        "title": "Create New Tab",
+        "category": "OpenCode TUI"
+      },
+      {
+        "command": "opencodeTui.createTab.opencode",
+        "title": "Create OpenCode Tab",
+        "category": "OpenCode TUI"
+      },
+      {
+        "command": "opencodeTui.createTab.claude",
+        "title": "Create Claude Tab",
+        "category": "OpenCode TUI"
+      },
+      {
+        "command": "opencodeTui.createTab.codex",
+        "title": "Create Codex Tab",
+        "category": "OpenCode TUI"
+      },
+      {
+        "command": "opencodeTui.createTab.gemini",
+        "title": "Create Gemini Tab",
+        "category": "OpenCode TUI"
+      },
+      {
+        "command": "opencodeTui.createTab.aider",
+        "title": "Create Aider Tab",
+        "category": "OpenCode TUI"
+      },
+      {
+        "command": "opencodeTui.closeTab",
+        "title": "Close Current Tab",
+        "category": "OpenCode TUI"
+      },
+      {
+        "command": "opencodeTui.nextTab",
+        "title": "Next Tab",
+        "category": "OpenCode TUI"
+      },
+      {
+        "command": "opencodeTui.previousTab",
+        "title": "Previous Tab",
+        "category": "OpenCode TUI"
       }
     ],
     "menus": {
@@ -167,6 +212,30 @@
         "command": "opencodeTui.paste",
         "key": "ctrl+v",
         "mac": "cmd+v",
+        "when": "focusedView == 'opencodeTui'"
+      },
+      {
+        "command": "opencodeTui.createTab",
+        "key": "ctrl+alt+t",
+        "mac": "cmd+alt+t",
+        "when": "focusedView == 'opencodeTui'"
+      },
+      {
+        "command": "opencodeTui.closeTab",
+        "key": "ctrl+alt+w",
+        "mac": "cmd+alt+w",
+        "when": "focusedView == 'opencodeTui'"
+      },
+      {
+        "command": "opencodeTui.nextTab",
+        "key": "ctrl+alt+right",
+        "mac": "cmd+alt+right",
+        "when": "focusedView == 'opencodeTui'"
+      },
+      {
+        "command": "opencodeTui.previousTab",
+        "key": "ctrl+alt+left",
+        "mac": "cmd+alt+left",
         "when": "focusedView == 'opencodeTui'"
       }
     ],
