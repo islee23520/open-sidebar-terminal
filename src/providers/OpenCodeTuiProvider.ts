@@ -3,6 +3,14 @@ import * as os from "os";
 import * as path from "path";
 import * as fs from "fs";
 import { randomUUID } from "crypto";
+import type { CliAdapter } from "../core/cli";
+import {
+  OpenCodeAdapter,
+  ClaudeAdapter,
+  CodexAdapter,
+  GeminiAdapter,
+  AiderAdapter,
+} from "../adapters";
 import { TerminalManager } from "../terminals/TerminalManager";
 import { OutputCaptureManager } from "../services/OutputCaptureManager";
 import { OpenCodeApiClient } from "../services/OpenCodeApiClient";
@@ -10,17 +18,55 @@ import { PortManager } from "../services/PortManager";
 import { ContextSharingService } from "../services/ContextSharingService";
 import { OutputChannelService } from "../services/OutputChannelService";
 import { InstanceId, InstanceStore } from "../services/InstanceStore";
-import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_SIZE } from "../types";
+import { TabManager } from "../services/TabManager";
+import { ALLOWED_IMAGE_TYPES, CliToolType, MAX_IMAGE_SIZE } from "../types";
+
+interface ToolRuntimeConfig {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+}
+
+export class CliAdapterFactory {
+  private readonly adapters = new Map<CliToolType, CliAdapter>();
+
+  constructor(terminalManager: TerminalManager) {
+    this.adapters.set("opencode", new OpenCodeAdapter(terminalManager));
+    this.adapters.set("claude", new ClaudeAdapter(terminalManager));
+    this.adapters.set("codex", new CodexAdapter(terminalManager));
+    this.adapters.set("gemini", new GeminiAdapter(terminalManager));
+    this.adapters.set("aider", new AiderAdapter(terminalManager));
+  }
+
+  getAdapter(toolId: CliToolType): CliAdapter {
+    const adapter = this.adapters.get(toolId);
+    if (!adapter) {
+      throw new Error(`Unknown tool: ${toolId}`);
+    }
+
+    return adapter;
+  }
+}
 
 export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "opencodeTui";
   private static readonly LEGACY_TERMINAL_ID: InstanceId = "opencode-main";
+  private static readonly DEFAULT_TOOL_COMMANDS: Record<CliToolType, string> = {
+    opencode: "opencode -c",
+    claude: "claude",
+    codex: "codex",
+    gemini: "gemini",
+    aider: "aider",
+  };
   private _view?: vscode.WebviewView;
   private activeInstanceId: InstanceId = "default";
   private isStarted = false;
   private apiClient?: OpenCodeApiClient;
   private readonly portManager: PortManager;
   private readonly contextSharingService: ContextSharingService;
+  private readonly tabManager = new TabManager();
+  private readonly adapterFactory: CliAdapterFactory;
+  private readonly tabStateSubscriptions: vscode.Disposable[] = [];
   private readonly logger = OutputChannelService.getInstance();
   private httpAvailable = false;
   private autoContextSent = false;
@@ -38,12 +84,34 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
   ) {
     this.portManager = new PortManager();
     this.contextSharingService = new ContextSharingService();
+    this.adapterFactory = new CliAdapterFactory(this.terminalManager);
+    this.subscribeToTabChanges();
 
     if (this.instanceStore) {
       this.subscribeToActiveInstanceChanges();
     } else {
       this.activeInstanceId = OpenCodeTuiProvider.LEGACY_TERMINAL_ID;
     }
+  }
+
+  private subscribeToTabChanges(): void {
+    this.tabStateSubscriptions.push(
+      this.tabManager.onDidChangeTabs(() => {
+        this.postTabsState();
+      }),
+      this.tabManager.onDidChangeActive((activeTab) => {
+        if (!activeTab) {
+          this.activeInstanceId = OpenCodeTuiProvider.LEGACY_TERMINAL_ID;
+          this.resetState(false);
+          this._view?.webview.postMessage({ type: "clearTerminal" });
+          return;
+        }
+
+        this.activeInstanceId = activeTab.id;
+        this.isStarted =
+          this.terminalManager.getTerminal(activeTab.id) !== undefined;
+      }),
+    );
   }
 
   private subscribeToActiveInstanceChanges(): void {
@@ -66,48 +134,50 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
    * Switches the provider to the given instance and rebinds terminal streams.
    */
   public async switchToInstance(instanceId: InstanceId): Promise<void> {
+    const targetTab = this.tabManager.getTab(instanceId);
+    if (targetTab) {
+      await this.switchTab(targetTab.id);
+      return;
+    }
+
     if (instanceId === this.activeInstanceId) {
       return;
     }
 
-    this.disposeListeners();
-    this.resetState(false);
     this.activeInstanceId = instanceId;
-
-    this._view?.webview.postMessage({ type: "clearTerminal" });
-
     const existingTerminal =
       this.terminalManager.getByInstance(instanceId) ||
       this.terminalManager.getTerminal(instanceId);
 
-    if (existingTerminal) {
-      this.isStarted = true;
-      this.reconnectListeners();
-
-      const config = vscode.workspace.getConfiguration("opencodeTui");
-      const enableHttpApi = config.get<boolean>("enableHttpApi", true);
-      if (enableHttpApi && existingTerminal.port) {
-        const httpTimeout = config.get<number>("httpTimeout", 5000);
-        this.apiClient = new OpenCodeApiClient(
-          existingTerminal.port,
-          10,
-          200,
-          httpTimeout,
-        );
-        await this.pollForHttpReadiness();
-      }
-
-      if (this.lastKnownCols && this.lastKnownRows) {
-        this.terminalManager.resizeTerminal(
-          this.activeInstanceId,
-          this.lastKnownCols,
-          this.lastKnownRows,
-        );
-      }
+    if (!existingTerminal) {
+      await this.startOpenCode();
       return;
     }
 
-    await this.startOpenCode();
+    this._view?.webview.postMessage({ type: "clearTerminal" });
+    this.isStarted = true;
+    this.reconnectListeners();
+
+    const config = vscode.workspace.getConfiguration("opencodeTui");
+    const enableHttpApi = config.get<boolean>("enableHttpApi", true);
+    if (enableHttpApi && existingTerminal.port) {
+      const httpTimeout = config.get<number>("httpTimeout", 5000);
+      this.apiClient = new OpenCodeApiClient(
+        existingTerminal.port,
+        10,
+        200,
+        httpTimeout,
+      );
+      await this.pollForHttpReadiness();
+    }
+
+    if (this.lastKnownCols && this.lastKnownRows) {
+      this.terminalManager.resizeTerminal(
+        this.activeInstanceId,
+        this.lastKnownCols,
+        this.lastKnownRows,
+      );
+    }
   }
 
   resolveWebviewView(
@@ -123,6 +193,7 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
     };
 
     webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
+    this.postTabsState();
 
     const processAlive =
       this.isStarted &&
@@ -133,7 +204,7 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
     }
 
     webviewView.webview.onDidReceiveMessage((message) => {
-      this.handleMessage(message);
+      void this.handleMessage(message);
     });
 
     if (processAlive) {
@@ -213,109 +284,242 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
   }
 
   async startOpenCode(): Promise<void> {
-    if (this.isStarted) {
+    const activeTab = this.tabManager.getActiveTab();
+    if (
+      activeTab?.toolId === "opencode" &&
+      this.terminalManager.getTerminal(activeTab.id)
+    ) {
+      this.isStarted = true;
       return;
     }
 
-    this.disposeListeners();
+    await this.createTab("opencode");
+  }
+
+  public async createTab(toolId: CliToolType): Promise<void> {
+    const tab = this.tabManager.createTab(toolId);
+    const adapter = this.adapterFactory.getAdapter(toolId);
+    const config = this.getToolConfig(toolId);
+
+    try {
+      await adapter.start({
+        instanceId: tab.id,
+        toolId,
+        command: config.command,
+        args: config.args,
+        env: config.env,
+        workingDir: this.getWorkspaceRoot(),
+        cols: this.lastKnownCols || undefined,
+        rows: this.lastKnownRows || undefined,
+      });
+    } catch (error) {
+      this.tabManager.removeTab(tab.id);
+      const message =
+        error instanceof Error ? error.message : "Failed to start CLI tool";
+      this.logger.error(`[OpenCodeTuiProvider] ${message}`);
+      vscode.window.showErrorMessage(
+        `Failed to create ${toolId} tab: ${message}`,
+      );
+      return;
+    }
+
+    this.isStarted = true;
+    this.activeInstanceId = tab.id;
+    this.reconnectListeners();
+    this.upsertInstanceStore(tab.id, toolId, adapter.getPort(tab.id));
+
+    await this.switchTab(tab.id);
+  }
+
+  public async switchTab(tabId: string): Promise<void> {
+    const tab = this.tabManager.getTab(tabId);
+    if (!tab) {
+      return;
+    }
+
+    this.tabManager.setActiveTab(tabId);
+    this.activeInstanceId = tab.id;
+
+    this._view?.webview.postMessage({
+      type: "switchTab",
+      tabId,
+      toolId: tab.toolId,
+    });
+
+    this._view?.webview.postMessage({ type: "clearTerminal" });
+    await this.refreshActiveApiClient();
+
+    if (this.lastKnownCols && this.lastKnownRows) {
+      this.adapterFactory
+        .getAdapter(tab.toolId)
+        .resize(tab.id, this.lastKnownCols, this.lastKnownRows);
+    }
+  }
+
+  public async closeTab(tabId: string): Promise<void> {
+    const tab = this.tabManager.getTab(tabId);
+    if (!tab) {
+      return;
+    }
+
+    const wasActive = this.tabManager.getActiveTab()?.id === tabId;
+    const adapter = this.adapterFactory.getAdapter(tab.toolId);
+
+    await adapter.stop(tab.id);
+    this.tabManager.removeTab(tabId);
+
+    if (!wasActive) {
+      return;
+    }
+
+    const nextActive = this.tabManager.getActiveTab();
+    if (!nextActive) {
+      this.activeInstanceId = OpenCodeTuiProvider.LEGACY_TERMINAL_ID;
+      this.resetState(false);
+      this._view?.webview.postMessage({ type: "clearTerminal" });
+      return;
+    }
+
+    await this.switchTab(nextActive.id);
+  }
+
+  public async restartOpenCode(): Promise<void> {
+    const active = this.tabManager.getActiveTab();
+    if (active) {
+      await this.closeTab(active.id);
+    }
+
+    await this.createTab("opencode");
+  }
+
+  public sendToTerminal(data: string): void {
+    const activeTab = this.tabManager.getActiveTab();
+    if (activeTab) {
+      this.adapterFactory
+        .getAdapter(activeTab.toolId)
+        .writeInput(activeTab.id, data);
+      return;
+    }
+
+    this.terminalManager.writeToTerminal(this.activeInstanceId, data);
+  }
+
+  private postTabsState(): void {
+    const tabs = this.tabManager.getAllTabs();
+    const activeTabId = this.tabManager.getActiveTab()?.id ?? null;
+    this._view?.webview.postMessage({
+      type: "tabsChanged",
+      tabs,
+      activeTabId,
+    });
+  }
+
+  private getToolConfig(toolId: CliToolType): ToolRuntimeConfig {
+    const config = vscode.workspace.getConfiguration("opencodeTui");
+    const toolConfig = config.get<{
+      command?: string;
+      shellArgs?: string[];
+      env?: Record<string, unknown>;
+    }>(`tools.${toolId}`);
+
+    const fallbackCommand =
+      toolId === "opencode"
+        ? config.get<string>(
+            "command",
+            OpenCodeTuiProvider.DEFAULT_TOOL_COMMANDS.opencode,
+          )
+        : OpenCodeTuiProvider.DEFAULT_TOOL_COMMANDS[toolId];
+
+    const env: Record<string, string> = {};
+    const sourceEnv = toolConfig?.env ?? {};
+    for (const [key, value] of Object.entries(sourceEnv)) {
+      if (typeof value === "string") {
+        env[key] = value;
+      }
+    }
+
+    return {
+      command: toolConfig?.command ?? fallbackCommand,
+      args: toolConfig?.shellArgs ?? [],
+      env,
+    };
+  }
+
+  private getWorkspaceRoot(): string {
+    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir();
+  }
+
+  private async refreshActiveApiClient(): Promise<void> {
+    const activeTab = this.tabManager.getActiveTab();
+    if (!activeTab || activeTab.toolId !== "opencode") {
+      this.apiClient = undefined;
+      this.httpAvailable = false;
+      return;
+    }
 
     const config = vscode.workspace.getConfiguration("opencodeTui");
     const enableHttpApi = config.get<boolean>("enableHttpApi", true);
-    const httpTimeout = config.get<number>("httpTimeout", 5000);
-    const command = config.get<string>("command", "opencode -c");
-
-    let port: number | undefined;
-
-    if (enableHttpApi) {
-      try {
-        port = this.portManager.assignPortToTerminal(this.activeInstanceId);
-        this.logger.info(
-          `[OpenCodeTuiProvider] Assigned port ${port} to terminal ${this.activeInstanceId}`,
-        );
-      } catch (error) {
-        this.logger.error(
-          `[OpenCodeTuiProvider] Failed to assign port: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        vscode.window.showWarningMessage(
-          "Failed to assign port for OpenCode HTTP API. Running without HTTP features.",
-        );
-      }
-    }
-
-    this.terminalManager.createTerminal(
-      this.activeInstanceId,
-      command,
-      port
-        ? {
-            _EXTENSION_OPENCODE_PORT: port.toString(),
-            OPENCODE_CALLER: "vscode",
-          }
-        : {},
-      port,
-      this.lastKnownCols || undefined,
-      this.lastKnownRows || undefined,
-      this.activeInstanceId,
-    );
-
-    // Ensure the instance store record has the terminal key so that
-    // ExtensionLifecycle.getActiveTerminalId() can resolve it correctly.
-    // Without this, the store may be empty (fresh install) or the record
-    // may lack a terminalKey, causing all send commands to target a
-    // non-existent terminal ID.
-    if (this.instanceStore) {
-      try {
-        const existing = this.instanceStore.get(this.activeInstanceId);
-        if (existing) {
-          this.instanceStore.upsert({
-            ...existing,
-            runtime: {
-              ...existing.runtime,
-              terminalKey: this.activeInstanceId,
-            },
-          });
-        } else {
-          // Fresh install: no record exists yet — create one so getActive() works
-          this.instanceStore.upsert({
-            config: { id: this.activeInstanceId },
-            runtime: { terminalKey: this.activeInstanceId, port },
-            state: "connected",
-          });
-        }
-      } catch (err) {
-        this.logger.warn(
-          `[OpenCodeTuiProvider] Failed to update instance store with terminal key: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
-
-    this.dataListener = this.terminalManager.onData((event) => {
-      if (event.id === this.activeInstanceId) {
-        this._view?.webview.postMessage({
-          type: "terminalOutput",
-          data: event.data,
-        });
-      }
-    });
-
-    this.exitListener = this.terminalManager.onExit((id) => {
-      if (id === this.activeInstanceId) {
-        this.resetState();
-        this._view?.webview.postMessage({
-          type: "terminalExited",
-        });
-      }
-    });
-
-    this.isStarted = true;
-
-    if (enableHttpApi && port) {
-      this.apiClient = new OpenCodeApiClient(port, 10, 200, httpTimeout);
-      await this.pollForHttpReadiness();
-    } else {
-      this.logger.info(
-        "[OpenCodeTuiProvider] HTTP API disabled or unavailable, using message passing fallback",
-      );
+    if (!enableHttpApi) {
+      this.apiClient = undefined;
       this.httpAvailable = false;
+      return;
+    }
+
+    const port = this.adapterFactory
+      .getAdapter("opencode")
+      .getPort(activeTab.id);
+    if (!port) {
+      this.apiClient = undefined;
+      this.httpAvailable = false;
+      return;
+    }
+
+    const httpTimeout = config.get<number>("httpTimeout", 5000);
+    this.apiClient = new OpenCodeApiClient(port, 10, 200, httpTimeout);
+    await this.pollForHttpReadiness();
+  }
+
+  private upsertInstanceStore(
+    instanceId: string,
+    toolId: CliToolType,
+    port?: number,
+  ): void {
+    if (!this.instanceStore) {
+      return;
+    }
+
+    try {
+      const existing = this.instanceStore.get(instanceId);
+      if (existing) {
+        this.instanceStore.upsert({
+          ...existing,
+          config: {
+            ...existing.config,
+            id: instanceId,
+            toolId,
+          },
+          runtime: {
+            ...existing.runtime,
+            terminalKey: instanceId,
+            port,
+          },
+          state: "connected",
+        });
+        return;
+      }
+
+      this.instanceStore.upsert({
+        config: {
+          id: instanceId,
+          toolId,
+        },
+        runtime: { terminalKey: instanceId, port },
+        state: "connected",
+      });
+    } catch (error) {
+      this.logger.warn(
+        `[OpenCodeTuiProvider] Failed to sync instance store: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -417,13 +621,7 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
   }
 
   restart(): void {
-    this.disposeListeners();
-    this.terminalManager.killTerminal(this.activeInstanceId);
-    this.resetState();
-
-    this._view?.webview.postMessage({ type: "clearTerminal" });
-
-    this.startOpenCode();
+    void this.restartOpenCode();
   }
 
   private resetState(releasePorts: boolean = true): void {
@@ -447,22 +645,28 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private handleMessage(message: any): void {
+  private async handleMessage(message: any): Promise<void> {
     switch (message.type) {
       case "terminalInput":
-        this.terminalManager.writeToTerminal(
-          this.activeInstanceId,
-          message.data,
-        );
+        this.sendToTerminal(message.data);
         break;
       case "terminalResize":
         this.lastKnownCols = message.cols;
         this.lastKnownRows = message.rows;
-        this.terminalManager.resizeTerminal(
-          this.activeInstanceId,
-          message.cols,
-          message.rows,
-        );
+        {
+          const activeTab = this.tabManager.getActiveTab();
+          if (activeTab) {
+            this.adapterFactory
+              .getAdapter(activeTab.toolId)
+              .resize(activeTab.id, message.cols, message.rows);
+          } else {
+            this.terminalManager.resizeTerminal(
+              this.activeInstanceId,
+              message.cols,
+              message.rows,
+            );
+          }
+        }
         break;
       case "ready":
         if (message.cols && message.rows) {
@@ -470,16 +674,25 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
           this.lastKnownRows = message.rows;
         }
         if (!this.isStarted) {
-          this.startOpenCode();
+          await this.startOpenCode();
         } else {
+          const activeTab = this.tabManager.getActiveTab();
           if (this.lastKnownCols && this.lastKnownRows) {
-            this.terminalManager.resizeTerminal(
-              this.activeInstanceId,
-              this.lastKnownCols,
-              this.lastKnownRows,
-            );
+            if (activeTab) {
+              this.adapterFactory
+                .getAdapter(activeTab.toolId)
+                .resize(activeTab.id, this.lastKnownCols, this.lastKnownRows);
+            } else {
+              this.terminalManager.resizeTerminal(
+                this.activeInstanceId,
+                this.lastKnownCols,
+                this.lastKnownRows,
+              );
+            }
           }
         }
+
+        this.postTabsState();
         // Send platform info to webview for Windows-specific handling
         this._view?.webview.postMessage({
           type: "platformInfo",
@@ -521,7 +734,22 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
         this.handlePaste();
         break;
       case "imagePasted":
-        this.handleImagePasted(message.data);
+        await this.handleImagePasted(message.data);
+        break;
+      case "createTab":
+        if (message.toolId) {
+          await this.createTab(message.toolId as CliToolType);
+        }
+        break;
+      case "closeTab":
+        if (typeof message.tabId === "string") {
+          await this.closeTab(message.tabId);
+        }
+        break;
+      case "switchTab":
+        if (typeof message.tabId === "string") {
+          await this.switchTab(message.tabId);
+        }
         break;
     }
   }
@@ -886,19 +1114,13 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
         .map((file) => `@${vscode.workspace.asRelativePath(file)}`)
         .join(" ");
       this.logger.info(`[PROVIDER] Writing with @: ${fileRefs}`);
-      this.terminalManager.writeToTerminal(
-        this.activeInstanceId,
-        fileRefs + " ",
-      );
+      this.sendToTerminal(fileRefs + " ");
     } else {
       const filePaths = dedupedFiles
         .map((file) => vscode.workspace.asRelativePath(file))
         .join(" ");
       this.logger.info(`[PROVIDER] Writing without @: ${filePaths}`);
-      this.terminalManager.writeToTerminal(
-        this.activeInstanceId,
-        filePaths + " ",
-      );
+      this.sendToTerminal(filePaths + " ");
     }
   }
 
@@ -951,6 +1173,23 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
     this.disposeListeners();
     this.activeInstanceSubscription?.dispose();
     this.activeInstanceSubscription = undefined;
+
+    for (const subscription of this.tabStateSubscriptions) {
+      subscription.dispose();
+    }
+    this.tabStateSubscriptions.length = 0;
+
+    for (const tab of this.tabManager.getAllTabs()) {
+      void this.adapterFactory
+        .getAdapter(tab.toolId)
+        .stop(tab.id)
+        .catch((error) => {
+          this.logger.warn(
+            `[OpenCodeTuiProvider] Failed to stop tab ${tab.id}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
+    }
+
     if (this.isStarted) {
       this.terminalManager.killTerminal(this.activeInstanceId);
     }
