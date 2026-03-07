@@ -47,8 +47,6 @@
           "icon": "$(terminal)",
           "contextualTitle": "OpenCode TUI"
         },
-
-
         {
           "id": "opencodeTui.instancesDashboard",
           "name": "Instances",
@@ -310,6 +308,191 @@
             "warning"
           ],
           "description": "Diagnostic severities that trigger code actions"
+        },
+        "opencodeTui.tools.opencode": {
+          "type": "object",
+          "description": "OpenCode CLI settings",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable OpenCode tool"
+            },
+            "command": {
+              "type": "string",
+              "default": "opencode -c",
+              "description": "Command to launch OpenCode"
+            },
+            "shellPath": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null,
+              "description": "Custom shell path for OpenCode"
+            },
+            "shellArgs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "description": "Custom shell arguments for OpenCode"
+            },
+            "env": {
+              "type": "object",
+              "default": {},
+              "description": "Environment variables for OpenCode"
+            }
+          }
+        },
+        "opencodeTui.tools.claude": {
+          "type": "object",
+          "description": "Claude CLI settings",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable Claude tool"
+            },
+            "command": {
+              "type": "string",
+              "default": "claude",
+              "description": "Command to launch Claude"
+            },
+            "shellPath": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null,
+              "description": "Custom shell path for Claude"
+            },
+            "shellArgs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "description": "Custom shell arguments for Claude"
+            },
+            "env": {
+              "type": "object",
+              "default": {},
+              "description": "Environment variables for Claude"
+            }
+          }
+        },
+        "opencodeTui.tools.codex": {
+          "type": "object",
+          "description": "Codex CLI settings",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable Codex tool"
+            },
+            "command": {
+              "type": "string",
+              "default": "codex",
+              "description": "Command to launch Codex"
+            },
+            "shellPath": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null,
+              "description": "Custom shell path for Codex"
+            },
+            "shellArgs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "description": "Custom shell arguments for Codex"
+            },
+            "env": {
+              "type": "object",
+              "default": {},
+              "description": "Environment variables for Codex"
+            }
+          }
+        },
+        "opencodeTui.tools.gemini": {
+          "type": "object",
+          "description": "Gemini CLI settings",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable Gemini tool"
+            },
+            "command": {
+              "type": "string",
+              "default": "gemini",
+              "description": "Command to launch Gemini"
+            },
+            "shellPath": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null,
+              "description": "Custom shell path for Gemini"
+            },
+            "shellArgs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "description": "Custom shell arguments for Gemini"
+            },
+            "env": {
+              "type": "object",
+              "default": {},
+              "description": "Environment variables for Gemini"
+            }
+          }
+        },
+        "opencodeTui.tools.aider": {
+          "type": "object",
+          "description": "Aider CLI settings",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable Aider tool"
+            },
+            "command": {
+              "type": "string",
+              "default": "aider",
+              "description": "Command to launch Aider"
+            },
+            "shellPath": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null,
+              "description": "Custom shell path for Aider"
+            },
+            "shellArgs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "description": "Custom shell arguments for Aider"
+            },
+            "env": {
+              "type": "object",
+              "default": {},
+              "description": "Environment variables for Aider"
+            }
+          }
         }
       }
     }

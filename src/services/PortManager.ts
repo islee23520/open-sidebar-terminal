@@ -12,12 +12,24 @@
  * - Coordination with InstanceStore for cross-instance port conflict detection
  */
 
-import type { InstanceStore } from './InstanceStore';
+import type { InstanceStore } from "./InstanceStore";
 
 export class PortManager {
   // Ephemeral port range (16384-65535)
   private static readonly MIN_PORT = 16384;
   private static readonly MAX_PORT = 65535;
+
+  // Tool-specific port ranges
+  private static readonly TOOL_RANGES: Record<
+    string,
+    { min: number; max: number }
+  > = {
+    opencode: { min: 16384, max: 32767 },
+    claude: { min: 32768, max: 49151 },
+    codex: { min: 49152, max: 57343 },
+    gemini: { min: 57344, max: 61439 },
+    aider: { min: 61440, max: 65535 },
+  };
 
   // Track used ports
   private usedPorts: Set<number> = new Set();
@@ -42,40 +54,37 @@ export class PortManager {
   /**
    * Get an available random port in the ephemeral range
    * Checks both local tracking and InstanceStore for conflicts
+   * @param min - Minimum port in range (inclusive)
+   * @param max - Maximum port in range (inclusive)
    * @returns A random available port number
    * @throws Error if no ports are available
    */
-  public getAvailablePort(): number {
-    const availablePorts = this.getAvailablePortCount();
+  public getAvailablePort(
+    min: number = PortManager.MIN_PORT,
+    max: number = PortManager.MAX_PORT,
+  ): number {
+    const availablePorts = this.getAvailablePortCount(min, max);
 
     if (availablePorts === 0) {
-      throw new Error(
-        `No available ports in range ${PortManager.MIN_PORT}-${PortManager.MAX_PORT}`,
-      );
+      throw new Error(`No available ports in range ${min}-${max}`);
     }
 
     // Try random selection first (up to 100 attempts to avoid infinite loop)
     for (let attempt = 0; attempt < 100; attempt++) {
-      const port = this.generateRandomPort();
+      const port = this.generateRandomPort(min, max);
       if (this.isPortAvailable(port)) {
         return port;
       }
     }
 
     // Fallback: sequential scan for available port
-    for (
-      let port = PortManager.MIN_PORT;
-      port <= PortManager.MAX_PORT;
-      port++
-    ) {
-      if (!this.usedPorts.has(port)) {
+    for (let port = min; port <= max; port++) {
+      if (this.isPortAvailable(port)) {
         return port;
       }
     }
 
-    throw new Error(
-      `No available ports in range ${PortManager.MIN_PORT}-${PortManager.MAX_PORT}`,
-    );
+    throw new Error(`No available ports in range ${min}-${max}`);
   }
 
   /**
@@ -168,6 +177,46 @@ export class PortManager {
   }
 
   /**
+   * Allocate a port for a specific tool
+   * @param toolId - Tool identifier (e.g., 'opencode', 'claude')
+   * @returns Allocated port number
+   */
+  public allocate(toolId: string): number {
+    const range = PortManager.TOOL_RANGES[toolId] || {
+      min: PortManager.MIN_PORT,
+      max: PortManager.MAX_PORT,
+    };
+
+    // Try to get port in tool-specific range
+    try {
+      const port = this.getAvailablePort(range.min, range.max);
+      this.reservePort(port);
+      return port;
+    } catch (error) {
+      // Fallback to any available port if tool-specific range is full
+      if (
+        range.min !== PortManager.MIN_PORT ||
+        range.max !== PortManager.MAX_PORT
+      ) {
+        const port = this.getAvailablePort();
+        this.reservePort(port);
+        return port;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Release a port for a specific tool
+   * @param toolId - Tool identifier
+   * @param port - Port number to release
+   */
+  public release(toolId: string, port: number): void {
+    // toolId is currently unused but kept for future range-specific logic
+    this.releasePort(port);
+  }
+
+  /**
    * Check if a port is available (both locally and in InstanceStore)
    * @param port - The port number to check
    * @returns true if port is available in both local tracking and InstanceStore
@@ -181,12 +230,25 @@ export class PortManager {
   }
 
   /**
-   * Get the count of available ports
+   * Get the count of available ports in a range
+   * @param min - Minimum port in range (inclusive)
+   * @param max - Maximum port in range (inclusive)
    * @returns Number of available ports
    */
-  public getAvailablePortCount(): number {
-    const totalPorts = PortManager.MAX_PORT - PortManager.MIN_PORT + 1;
-    return totalPorts - this.usedPorts.size;
+  public getAvailablePortCount(
+    min: number = PortManager.MIN_PORT,
+    max: number = PortManager.MAX_PORT,
+  ): number {
+    const totalInRange = max - min + 1;
+    let usedInRange = 0;
+
+    for (const port of this.usedPorts) {
+      if (port >= min && port <= max) {
+        usedInRange++;
+      }
+    }
+
+    return totalInRange - usedInRange;
   }
 
   /**
@@ -214,9 +276,9 @@ export class PortManager {
     if (!this.instanceStore) {
       return false;
     }
-    
+
     const instances = this.instanceStore.getAll();
-    return instances.some(instance => instance.runtime.port === port);
+    return instances.some((instance) => instance.runtime.port === port);
   }
 
   /**
@@ -230,14 +292,15 @@ export class PortManager {
 
   /**
    * Generate a random port in the valid range
+   * @param min - Minimum port in range (inclusive)
+   * @param max - Maximum port in range (inclusive)
    * @returns Random port number
    */
-  private generateRandomPort(): number {
-    return (
-      Math.floor(
-        Math.random() * (PortManager.MAX_PORT - PortManager.MIN_PORT + 1),
-      ) + PortManager.MIN_PORT
-    );
+  private generateRandomPort(
+    min: number = PortManager.MIN_PORT,
+    max: number = PortManager.MAX_PORT,
+  ): number {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
   }
 
   /**

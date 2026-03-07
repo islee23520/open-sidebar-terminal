@@ -186,6 +186,62 @@ describe("PortManager", () => {
     });
   });
 
+  describe("allocate", () => {
+    it("should allocate a port for a specific tool", () => {
+      const port = portManager.allocate("opencode");
+
+      expect(port).toBeGreaterThanOrEqual(16384);
+      expect(port).toBeLessThanOrEqual(32767);
+      expect(portManager.isPortAvailable(port)).toBe(false);
+    });
+
+    it("should allocate different ports for different tools", () => {
+      const port1 = portManager.allocate("opencode");
+      const port2 = portManager.allocate("claude");
+
+      expect(port1).not.toBe(port2);
+      expect(port1).toBeLessThanOrEqual(32767);
+      expect(port2).toBeGreaterThanOrEqual(32768);
+      expect(port2).toBeLessThanOrEqual(49151);
+    });
+
+    it("should fallback to shared range if tool range is full", () => {
+      // Fill opencode range (16384-32767)
+      // For testing, we can just reserve all ports in that range
+      for (let port = 16384; port <= 32767; port++) {
+        portManager.reservePort(port);
+      }
+
+      // This should now return a port from another range
+      const port = portManager.allocate("opencode");
+      expect(port).toBeGreaterThan(32767);
+    });
+
+    it("should throw error if all ports are full", () => {
+      // Fill all ports
+      for (let port = 16384; port <= 65535; port++) {
+        try {
+          portManager.reservePort(port);
+        } catch {
+          // Ignore if already reserved
+        }
+      }
+
+      expect(() => portManager.allocate("opencode")).toThrow(
+        "No available ports in range 16384-65535",
+      );
+    });
+  });
+
+  describe("release", () => {
+    it("should release an allocated port", () => {
+      const port = portManager.allocate("opencode");
+      portManager.release("opencode", port);
+
+      expect(portManager.isPortAvailable(port)).toBe(true);
+    });
+  });
+
   describe("isPortAvailable", () => {
     it("should return true for available port", () => {
       expect(portManager.isPortAvailable(30000)).toBe(true);

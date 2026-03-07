@@ -373,7 +373,9 @@ describe("InstanceStore", () => {
       expect(listener).toHaveBeenCalledTimes(1);
       expect(listener).toHaveBeenCalledWith(
         expect.arrayContaining([
-          expect.objectContaining({ config: { id: "test" } }),
+          expect.objectContaining({
+            config: expect.objectContaining({ id: "test" }),
+          }),
         ]),
       );
     });
@@ -564,7 +566,7 @@ describe("InstanceStore", () => {
       expect(listener).toHaveBeenCalledTimes(1);
       expect(listener).toHaveBeenCalledWith(
         expect.objectContaining({
-          config: { id: "test" },
+          config: expect.objectContaining({ id: "test" }),
         }),
       );
     });
@@ -842,6 +844,88 @@ describe("InstanceStore", () => {
       specialIds.forEach((id) => {
         expect(store.get(id)).toBeDefined();
       });
+    });
+  });
+
+  describe("toolId and migration", () => {
+    it("should default toolId to 'opencode' if missing (migration)", () => {
+      const record: InstanceRecord = {
+        config: { id: "test-1" },
+        runtime: {},
+        state: "disconnected",
+      };
+
+      store.upsert(record);
+      const retrieved = store.get("test-1");
+      expect(retrieved?.config.toolId).toBe("opencode");
+    });
+
+    it("should preserve provided toolId", () => {
+      const record: InstanceRecord = {
+        config: { id: "test-claude", toolId: "claude" },
+        runtime: {},
+        state: "disconnected",
+      };
+
+      store.upsert(record);
+      const retrieved = store.get("test-claude");
+      expect(retrieved?.config.toolId).toBe("claude");
+    });
+
+    it("should filter records by toolId using getByTool", () => {
+      store.upsert({
+        config: { id: "o1", toolId: "opencode" },
+        runtime: {},
+        state: "disconnected",
+      });
+      store.upsert({
+        config: { id: "c1", toolId: "claude" },
+        runtime: {},
+        state: "disconnected",
+      });
+      store.upsert({
+        config: { id: "o2", toolId: "opencode" },
+        runtime: {},
+        state: "disconnected",
+      });
+
+      const opencodeInstances = store.getByTool("opencode");
+      const claudeInstances = store.getByTool("claude");
+
+      expect(opencodeInstances).toHaveLength(2);
+      expect(opencodeInstances.map((r) => r.config.id)).toContain("o1");
+      expect(opencodeInstances.map((r) => r.config.id)).toContain("o2");
+      expect(claudeInstances).toHaveLength(1);
+      expect(claudeInstances[0].config.id).toBe("c1");
+    });
+
+    it("should return unique toolIds using getTools", () => {
+      store.upsert({
+        config: { id: "o1", toolId: "opencode" },
+        runtime: {},
+        state: "disconnected",
+      });
+      store.upsert({
+        config: { id: "c1", toolId: "claude" },
+        runtime: {},
+        state: "disconnected",
+      });
+      store.upsert({
+        config: { id: "o2", toolId: "opencode" },
+        runtime: {},
+        state: "disconnected",
+      });
+      store.upsert({
+        config: { id: "a1", toolId: "aider" },
+        runtime: {},
+        state: "disconnected",
+      });
+
+      const tools = store.getTools();
+      expect(tools).toHaveLength(3);
+      expect(tools).toContain("opencode");
+      expect(tools).toContain("claude");
+      expect(tools).toContain("aider");
     });
   });
 });
