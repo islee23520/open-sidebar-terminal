@@ -17,6 +17,7 @@ import { InstanceQuickPick } from "../services/InstanceQuickPick";
 import { InstanceController } from "../services/InstanceController";
 import { PortManager } from "../services/PortManager";
 import { ConnectionResolver } from "../services/ConnectionResolver";
+import { ConfigMigration } from "../services/ConfigMigration";
 
 // Module-level state for batching file sends from context menu
 let fileSendAccumulator: vscode.Uri[] = [];
@@ -65,6 +66,8 @@ export class ExtensionLifecycle {
     logger.info("Initializing OpenCode Sidebar TUI...");
 
     try {
+      await ConfigMigration.migrate();
+
       // Initialize terminal manager
       this.terminalManager = new TerminalManager();
 
