@@ -194,4 +194,33 @@ describe("OpenCodeTuiProvider", () => {
     });
     expect(resizeSpy).toHaveBeenCalledWith("session-b", 90, 30);
   });
+
+  it("switches active instances and spawns a new terminal when it does not exist", async () => {
+    mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
+    const instanceStore = new InstanceStore();
+    instanceStore.upsert({
+      config: { id: "session-a" },
+      runtime: { terminalKey: "session-a" },
+      state: "connected",
+    });
+    instanceStore.upsert({
+      config: { id: "session-c" },
+      runtime: { terminalKey: "session-c" },
+      state: "connected",
+    });
+
+    provider = createProvider(instanceStore);
+    const startSpy = vi.spyOn(provider, "startOpenCode").mockResolvedValue();
+
+    const { view } = resolveProvider(provider);
+
+    instanceStore.setActive("session-c");
+    await Promise.resolve();
+
+    expect((provider as any).activeInstanceId).toBe("session-c");
+    expect(startSpy).toHaveBeenCalled();
+    expect(view.webview.postMessage).toHaveBeenCalledWith({
+      type: "clearTerminal",
+    });
+  });
 });
