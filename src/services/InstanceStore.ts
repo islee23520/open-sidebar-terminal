@@ -26,6 +26,7 @@ export interface InstanceRuntime {
   port?: number;
   pid?: number;
   terminalKey?: string;
+  tmuxSessionId?: string;
   lastSeenAt?: number;
 }
 

@@ -106,17 +106,50 @@ describe("OpenCodeTuiProvider", () => {
     await Promise.resolve();
   }
 
-  it("handles switchSession messages by delegating to instance switching", () => {
+  it("resolves switchSession tmux ids to instance ids", () => {
     mockConfiguration();
-    provider = createProvider();
+    const instanceStore = new InstanceStore();
+    instanceStore.upsert({
+      config: {
+        id: "workspace-b-instance",
+        workspaceUri: "file:///workspaces/workspace-b",
+      },
+      runtime: { terminalKey: "workspace-b-instance", tmuxSessionId: "tmux-b" },
+      state: "connected",
+    });
+
+    provider = createProvider({ instanceStore });
     const { messageHandler } = resolveProvider(provider);
     const switchSpy = vi
       .spyOn(provider, "switchToInstance")
       .mockResolvedValue(undefined);
 
-    messageHandler({ type: "switchSession", sessionId: "workspace-b" });
+    messageHandler({ type: "switchSession", sessionId: "tmux-b" });
 
-    expect(switchSpy).toHaveBeenCalledWith("workspace-b");
+    expect(switchSpy).toHaveBeenCalledWith("workspace-b-instance");
+  });
+
+  it("resolves switchSession by workspace basename when tmux runtime id is missing", () => {
+    mockConfiguration();
+    const instanceStore = new InstanceStore();
+    instanceStore.upsert({
+      config: {
+        id: "workspace-c-instance",
+        workspaceUri: "file:///workspaces/workspace-c",
+      },
+      runtime: { terminalKey: "workspace-c-instance" },
+      state: "connected",
+    });
+
+    provider = createProvider({ instanceStore });
+    const { messageHandler } = resolveProvider(provider);
+    const switchSpy = vi
+      .spyOn(provider, "switchToInstance")
+      .mockResolvedValue(undefined);
+
+    messageHandler({ type: "switchSession", sessionId: "workspace-c" });
+
+    expect(switchSpy).toHaveBeenCalledWith("workspace-c-instance");
   });
 
   it("emits a populated treeSnapshot to the webview", async () => {
@@ -144,6 +177,34 @@ describe("OpenCodeTuiProvider", () => {
 
     expect(createTreeSnapshot).toHaveBeenCalledWith("opencode-main");
     expect(view.webview.postMessage).toHaveBeenCalledWith(snapshot);
+  });
+
+  it("emits treeSnapshot with active tmux session id when runtime has mapping", async () => {
+    mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
+    const instanceStore = new InstanceStore();
+    instanceStore.upsert({
+      config: {
+        id: "workspace-d-instance",
+        workspaceUri: "file:///workspaces/workspace-d",
+      },
+      runtime: { terminalKey: "workspace-d-instance", tmuxSessionId: "tmux-d" },
+      state: "connected",
+    });
+    const createTreeSnapshot = vi.fn().mockResolvedValue({
+      type: "treeSnapshot",
+      sessions: [],
+      activeSessionId: null,
+      emptyState: "no-sessions",
+    } satisfies TreeSnapshot);
+    const tmuxSessionManager = {
+      createTreeSnapshot,
+    } as unknown as TmuxSessionManager;
+
+    provider = createProvider({ instanceStore, tmuxSessionManager });
+    resolveProvider(provider);
+    await flushAsyncStartup();
+
+    expect(createTreeSnapshot).toHaveBeenCalledWith("tmux-d");
   });
 
   it("emits explicit empty state snapshots from tmux manager", async () => {
@@ -226,8 +287,8 @@ describe("OpenCodeTuiProvider", () => {
     const ensureSession = vi.fn().mockResolvedValue({
       action: "attached",
       session: {
-        id: "repo-a",
-        name: "repo-a",
+        id: "repo-a-tmux",
+        name: "repo-a-tmux",
         workspace: "repo-a",
         isActive: true,
       },
@@ -246,13 +307,17 @@ describe("OpenCodeTuiProvider", () => {
     expect(ensureSession).toHaveBeenCalledWith("repo-a", "/workspaces/repo-a");
     expect(createTerminalSpy).toHaveBeenCalledWith(
       "workspace-a",
-      "opencode -c",
+      "tmux attach-session -t repo-a-tmux",
       {},
       undefined,
       100,
       35,
       "workspace-a",
       "/workspaces/repo-a",
+    );
+
+    expect(instanceStore.get("workspace-a")?.runtime.tmuxSessionId).toBe(
+      "repo-a-tmux",
     );
   });
 
@@ -270,8 +335,8 @@ describe("OpenCodeTuiProvider", () => {
     const ensureSession = vi.fn().mockResolvedValue({
       action: "created",
       session: {
-        id: "repo-b",
-        name: "repo-b",
+        id: "repo-b-tmux",
+        name: "repo-b-tmux",
         workspace: "repo-b",
         isActive: true,
       },
@@ -281,6 +346,7 @@ describe("OpenCodeTuiProvider", () => {
     } as unknown as TmuxSessionManager;
 
     provider = createProvider({ instanceStore, tmuxSessionManager });
+    const createTerminalSpy = vi.spyOn(terminalManager, "createTerminal");
     const { messageHandler } = resolveProvider(provider);
 
     messageHandler({ type: "ready", cols: 120, rows: 40 });
@@ -288,6 +354,19 @@ describe("OpenCodeTuiProvider", () => {
 
     expect(ensureSession).toHaveBeenCalledTimes(1);
     expect(ensureSession).toHaveBeenCalledWith("repo-b", "/workspaces/repo-b");
+    expect(createTerminalSpy).toHaveBeenCalledWith(
+      "workspace-b",
+      "tmux attach-session -t repo-b-tmux",
+      {},
+      undefined,
+      120,
+      40,
+      "workspace-b",
+      "/workspaces/repo-b",
+    );
+    expect(instanceStore.get("workspace-b")?.runtime.tmuxSessionId).toBe(
+      "repo-b-tmux",
+    );
   });
 
   it("does not duplicate startup orchestration on repeated ready messages", async () => {

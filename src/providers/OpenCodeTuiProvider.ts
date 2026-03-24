@@ -241,14 +241,26 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
       const enableHttpApi = config.get<boolean>("enableHttpApi", true);
       const httpTimeout = config.get<number>("httpTimeout", 5000);
       const command = config.get<string>("command", "opencode -c");
+      let tmuxSessionId = this.resolveTmuxSessionIdForInstance(
+        this.activeInstanceId,
+      );
 
       let port: number | undefined;
       const { workspacePath, isWorkspaceScoped } =
         this.resolveStartupWorkspacePath();
 
       if (isWorkspaceScoped) {
-        await this.ensureWorkspaceSession(workspacePath);
+        const ensuredSessionId =
+          await this.ensureWorkspaceSession(workspacePath);
+        if (ensuredSessionId) {
+          tmuxSessionId = ensuredSessionId;
+        }
       }
+
+      const terminalCommand = this.resolveTerminalStartupCommand(
+        command,
+        tmuxSessionId,
+      );
 
       if (enableHttpApi) {
         try {
@@ -268,7 +280,7 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
 
       this.terminalManager.createTerminal(
         this.activeInstanceId,
-        command,
+        terminalCommand,
         port
           ? {
               _EXTENSION_OPENCODE_PORT: port.toString(),
@@ -296,13 +308,19 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
               runtime: {
                 ...existing.runtime,
                 terminalKey: this.activeInstanceId,
+                tmuxSessionId,
+                port: port ?? existing.runtime.port,
               },
             });
           } else {
             // Fresh install: no record exists yet — create one so getActive() works
             this.instanceStore.upsert({
               config: { id: this.activeInstanceId },
-              runtime: { terminalKey: this.activeInstanceId, port },
+              runtime: {
+                terminalKey: this.activeInstanceId,
+                tmuxSessionId,
+                port,
+              },
               state: "connected",
             });
           }
@@ -349,7 +367,10 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
   }
 
   private resolveSnapshotActiveSessionId(): string | null {
-    return this.activeInstanceId || null;
+    const activeTmuxSessionId = this.resolveTmuxSessionIdForInstance(
+      this.activeInstanceId,
+    );
+    return activeTmuxSessionId ?? this.activeInstanceId ?? null;
   }
 
   private hasWorkspaceContext(): boolean {
@@ -464,9 +485,11 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async ensureWorkspaceSession(workspacePath: string): Promise<void> {
+  private async ensureWorkspaceSession(
+    workspacePath: string,
+  ): Promise<string | undefined> {
     if (!this.tmuxSessionManager) {
-      return;
+      return undefined;
     }
 
     const sessionName = path.basename(workspacePath) || this.activeInstanceId;
@@ -479,18 +502,76 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
       this.logger.info(
         `[OpenCodeTuiProvider] tmux session ${result.action}: ${result.session.id}`,
       );
+      return result.session.id;
     } catch (error) {
       if (error instanceof TmuxUnavailableError) {
         this.logger.info(
           "[OpenCodeTuiProvider] tmux unavailable, continuing with default startup",
         );
-        return;
+        return undefined;
       }
 
       this.logger.warn(
         `[OpenCodeTuiProvider] Failed to ensure tmux session: ${error instanceof Error ? error.message : String(error)}. Continuing with default startup.`,
       );
+      return undefined;
     }
+  }
+
+  private resolveTerminalStartupCommand(
+    defaultCommand: string,
+    tmuxSessionId?: string,
+  ): string {
+    if (!tmuxSessionId) {
+      return defaultCommand;
+    }
+
+    return `tmux attach-session -t ${tmuxSessionId}`;
+  }
+
+  private resolveTmuxSessionIdForInstance(
+    instanceId: InstanceId,
+  ): string | undefined {
+    if (!this.instanceStore) {
+      return undefined;
+    }
+
+    return this.instanceStore.get(instanceId)?.runtime.tmuxSessionId;
+  }
+
+  private resolveInstanceIdFromSessionId(sessionId: string): InstanceId {
+    if (!this.instanceStore) {
+      return sessionId;
+    }
+
+    if (this.instanceStore.get(sessionId)) {
+      return sessionId;
+    }
+
+    const records = this.instanceStore.getAll();
+
+    const tmuxMapped = records.find(
+      (record) => record.runtime.tmuxSessionId === sessionId,
+    );
+    if (tmuxMapped) {
+      return tmuxMapped.config.id;
+    }
+
+    const workspaceMapped = records.find((record) => {
+      const workspaceUri = record.config.workspaceUri;
+      if (!workspaceUri) {
+        return false;
+      }
+
+      try {
+        const workspacePath = vscode.Uri.parse(workspaceUri).fsPath;
+        return path.basename(workspacePath) === sessionId;
+      } catch {
+        return false;
+      }
+    });
+
+    return workspaceMapped?.config.id ?? sessionId;
   }
 
   /**
@@ -662,7 +743,9 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
         break;
       case "switchSession":
         if (message.sessionId) {
-          void this.switchToInstance(message.sessionId);
+          void this.switchToInstance(
+            this.resolveInstanceIdFromSessionId(message.sessionId),
+          );
         }
         break;
     }
