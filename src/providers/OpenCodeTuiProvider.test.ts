@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as os from "os";
 import type * as nodePtyTypes from "../test/mocks/node-pty";
 import type * as vscodeTypes from "../test/mocks/vscode";
 import { OutputCaptureManager } from "../services/OutputCaptureManager";
 import { InstanceStore } from "../services/InstanceStore";
 import { OutputChannelService } from "../services/OutputChannelService";
+import { TmuxSessionManager } from "../services/TmuxSessionManager";
 import { TerminalManager } from "../terminals/TerminalManager";
 import { TreeSnapshot } from "../webview/sidebar/types";
 import { OpenCodeTuiProvider } from "./OpenCodeTuiProvider";
@@ -33,6 +35,7 @@ describe("OpenCodeTuiProvider", () => {
     OutputChannelService.resetInstance();
     terminalManager = new TerminalManager();
     captureManager = new OutputCaptureManager();
+    vscode.workspace.workspaceFolders = undefined;
   });
 
   afterEach(() => {
@@ -75,13 +78,17 @@ describe("OpenCodeTuiProvider", () => {
     } as any);
   }
 
-  function createProvider(instanceStore?: InstanceStore): OpenCodeTuiProvider {
+  function createProvider(options?: {
+    instanceStore?: InstanceStore;
+    tmuxSessionManager?: TmuxSessionManager;
+  }): OpenCodeTuiProvider {
     const context = new vscode.ExtensionContext();
     return new OpenCodeTuiProvider(
       context as any,
       terminalManager,
       captureManager,
-      instanceStore,
+      options?.instanceStore,
+      options?.tmuxSessionManager,
     );
   }
 
@@ -92,6 +99,11 @@ describe("OpenCodeTuiProvider", () => {
       .calls[0]?.[0] as (message: any) => void;
 
     return { view, messageHandler };
+  }
+
+  async function flushAsyncStartup(): Promise<void> {
+    await Promise.resolve();
+    await Promise.resolve();
   }
 
   it("handles switchSession messages by delegating to instance switching", () => {
@@ -107,13 +119,14 @@ describe("OpenCodeTuiProvider", () => {
     expect(switchSpy).toHaveBeenCalledWith("workspace-b");
   });
 
-  it("starts the default terminal path without sidebar tree interaction", () => {
+  it("starts the default terminal path without sidebar tree interaction", async () => {
     mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
     provider = createProvider();
     const createTerminalSpy = vi.spyOn(terminalManager, "createTerminal");
     const { messageHandler } = resolveProvider(provider);
 
     messageHandler({ type: "ready", cols: 120, rows: 40 });
+    await flushAsyncStartup();
 
     expect(createTerminalSpy).toHaveBeenCalledWith(
       "opencode-main",
@@ -123,6 +136,157 @@ describe("OpenCodeTuiProvider", () => {
       120,
       40,
       "opencode-main",
+      expect.any(String),
+    );
+  });
+
+  it("ensures and reuses a matching tmux workspace session on startup", async () => {
+    mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
+    const instanceStore = new InstanceStore();
+    instanceStore.upsert({
+      config: {
+        id: "workspace-a",
+        workspaceUri: "file:///workspaces/repo-a",
+      },
+      runtime: { terminalKey: "workspace-a" },
+      state: "connected",
+    });
+    const ensureSession = vi.fn().mockResolvedValue({
+      action: "attached",
+      session: {
+        id: "repo-a",
+        name: "repo-a",
+        workspace: "repo-a",
+        isActive: true,
+      },
+    });
+    const tmuxSessionManager = {
+      ensureSession,
+    } as unknown as TmuxSessionManager;
+
+    provider = createProvider({ instanceStore, tmuxSessionManager });
+    const createTerminalSpy = vi.spyOn(terminalManager, "createTerminal");
+    const { messageHandler } = resolveProvider(provider);
+
+    messageHandler({ type: "ready", cols: 100, rows: 35 });
+    await flushAsyncStartup();
+
+    expect(ensureSession).toHaveBeenCalledWith("repo-a", "/workspaces/repo-a");
+    expect(createTerminalSpy).toHaveBeenCalledWith(
+      "workspace-a",
+      "opencode -c",
+      {},
+      undefined,
+      100,
+      35,
+      "workspace-a",
+      "/workspaces/repo-a",
+    );
+  });
+
+  it("creates a workspace tmux session when none exists", async () => {
+    mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
+    const instanceStore = new InstanceStore();
+    instanceStore.upsert({
+      config: {
+        id: "workspace-b",
+        workspaceUri: "file:///workspaces/repo-b",
+      },
+      runtime: { terminalKey: "workspace-b" },
+      state: "connected",
+    });
+    const ensureSession = vi.fn().mockResolvedValue({
+      action: "created",
+      session: {
+        id: "repo-b",
+        name: "repo-b",
+        workspace: "repo-b",
+        isActive: true,
+      },
+    });
+    const tmuxSessionManager = {
+      ensureSession,
+    } as unknown as TmuxSessionManager;
+
+    provider = createProvider({ instanceStore, tmuxSessionManager });
+    const { messageHandler } = resolveProvider(provider);
+
+    messageHandler({ type: "ready", cols: 120, rows: 40 });
+    await flushAsyncStartup();
+
+    expect(ensureSession).toHaveBeenCalledTimes(1);
+    expect(ensureSession).toHaveBeenCalledWith("repo-b", "/workspaces/repo-b");
+  });
+
+  it("does not duplicate startup orchestration on repeated ready messages", async () => {
+    mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
+    const instanceStore = new InstanceStore();
+    instanceStore.upsert({
+      config: {
+        id: "workspace-c",
+        workspaceUri: "file:///workspaces/repo-c",
+      },
+      runtime: { terminalKey: "workspace-c" },
+      state: "connected",
+    });
+    const ensureSession = vi.fn().mockResolvedValue({
+      action: "attached",
+      session: {
+        id: "repo-c",
+        name: "repo-c",
+        workspace: "repo-c",
+        isActive: true,
+      },
+    });
+    const tmuxSessionManager = {
+      ensureSession,
+    } as unknown as TmuxSessionManager;
+
+    provider = createProvider({ instanceStore, tmuxSessionManager });
+    const createTerminalSpy = vi.spyOn(terminalManager, "createTerminal");
+    const { messageHandler } = resolveProvider(provider);
+
+    messageHandler({ type: "ready", cols: 110, rows: 34 });
+    await flushAsyncStartup();
+    messageHandler({ type: "ready", cols: 110, rows: 34 });
+    await flushAsyncStartup();
+
+    expect(ensureSession).toHaveBeenCalledTimes(1);
+    expect(createTerminalSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips tmux ensure when startup falls back to home without workspace", async () => {
+    mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
+    const ensureSession = vi.fn().mockResolvedValue({
+      action: "attached",
+      session: {
+        id: "home",
+        name: "home",
+        workspace: "home",
+        isActive: true,
+      },
+    });
+    const tmuxSessionManager = {
+      ensureSession,
+    } as unknown as TmuxSessionManager;
+
+    provider = createProvider({ tmuxSessionManager });
+    const createTerminalSpy = vi.spyOn(terminalManager, "createTerminal");
+    const { messageHandler } = resolveProvider(provider);
+
+    messageHandler({ type: "ready", cols: 96, rows: 28 });
+    await flushAsyncStartup();
+
+    expect(ensureSession).not.toHaveBeenCalled();
+    expect(createTerminalSpy).toHaveBeenCalledWith(
+      "opencode-main",
+      "opencode -c",
+      {},
+      undefined,
+      96,
+      28,
+      "opencode-main",
+      os.homedir(),
     );
   });
 
@@ -167,7 +331,7 @@ describe("OpenCodeTuiProvider", () => {
       state: "connected",
     });
 
-    provider = createProvider(instanceStore);
+    provider = createProvider({ instanceStore });
     const startSpy = vi.spyOn(provider, "startOpenCode").mockResolvedValue();
     const resizeSpy = vi.spyOn(terminalManager, "resizeTerminal");
     terminalManager.createTerminal(
@@ -209,7 +373,7 @@ describe("OpenCodeTuiProvider", () => {
       state: "connected",
     });
 
-    provider = createProvider(instanceStore);
+    provider = createProvider({ instanceStore });
     const startSpy = vi.spyOn(provider, "startOpenCode").mockResolvedValue();
 
     const { view } = resolveProvider(provider);

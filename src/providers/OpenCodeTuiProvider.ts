@@ -10,7 +10,16 @@ import { PortManager } from "../services/PortManager";
 import { ContextSharingService } from "../services/ContextSharingService";
 import { OutputChannelService } from "../services/OutputChannelService";
 import { InstanceId, InstanceStore } from "../services/InstanceStore";
+import {
+  TmuxSessionManager,
+  TmuxUnavailableError,
+} from "../services/TmuxSessionManager";
 import { ALLOWED_IMAGE_TYPES, MAX_IMAGE_SIZE } from "../types";
+
+interface StartupWorkspaceResolution {
+  workspacePath: string;
+  isWorkspaceScoped: boolean;
+}
 
 export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "opencodeTui";
@@ -29,12 +38,14 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
   private activeInstanceSubscription?: vscode.Disposable;
   private lastKnownCols: number = 0;
   private lastKnownRows: number = 0;
+  private isStarting = false;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly terminalManager: TerminalManager,
     private readonly captureManager: OutputCaptureManager,
     private readonly instanceStore?: InstanceStore,
+    private readonly tmuxSessionManager?: TmuxSessionManager,
   ) {
     this.portManager = new PortManager();
     this.contextSharingService = new ContextSharingService();
@@ -213,109 +224,122 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
   }
 
   async startOpenCode(): Promise<void> {
-    if (this.isStarted) {
+    if (this.isStarted || this.isStarting) {
       return;
     }
 
-    this.disposeListeners();
+    this.isStarting = true;
 
-    const config = vscode.workspace.getConfiguration("opencodeTui");
-    const enableHttpApi = config.get<boolean>("enableHttpApi", true);
-    const httpTimeout = config.get<number>("httpTimeout", 5000);
-    const command = config.get<string>("command", "opencode -c");
+    try {
+      this.disposeListeners();
 
-    let port: number | undefined;
+      const config = vscode.workspace.getConfiguration("opencodeTui");
+      const enableHttpApi = config.get<boolean>("enableHttpApi", true);
+      const httpTimeout = config.get<number>("httpTimeout", 5000);
+      const command = config.get<string>("command", "opencode -c");
 
-    if (enableHttpApi) {
-      try {
-        port = this.portManager.assignPortToTerminal(this.activeInstanceId);
-        this.logger.info(
-          `[OpenCodeTuiProvider] Assigned port ${port} to terminal ${this.activeInstanceId}`,
-        );
-      } catch (error) {
-        this.logger.error(
-          `[OpenCodeTuiProvider] Failed to assign port: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        vscode.window.showWarningMessage(
-          "Failed to assign port for OpenCode HTTP API. Running without HTTP features.",
-        );
+      let port: number | undefined;
+      const { workspacePath, isWorkspaceScoped } =
+        this.resolveStartupWorkspacePath();
+
+      if (isWorkspaceScoped) {
+        await this.ensureWorkspaceSession(workspacePath);
       }
-    }
 
-    this.terminalManager.createTerminal(
-      this.activeInstanceId,
-      command,
-      port
-        ? {
-            _EXTENSION_OPENCODE_PORT: port.toString(),
-            OPENCODE_CALLER: "vscode",
+      if (enableHttpApi) {
+        try {
+          port = this.portManager.assignPortToTerminal(this.activeInstanceId);
+          this.logger.info(
+            `[OpenCodeTuiProvider] Assigned port ${port} to terminal ${this.activeInstanceId}`,
+          );
+        } catch (error) {
+          this.logger.error(
+            `[OpenCodeTuiProvider] Failed to assign port: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          vscode.window.showWarningMessage(
+            "Failed to assign port for OpenCode HTTP API. Running without HTTP features.",
+          );
+        }
+      }
+
+      this.terminalManager.createTerminal(
+        this.activeInstanceId,
+        command,
+        port
+          ? {
+              _EXTENSION_OPENCODE_PORT: port.toString(),
+              OPENCODE_CALLER: "vscode",
+            }
+          : {},
+        port,
+        this.lastKnownCols || undefined,
+        this.lastKnownRows || undefined,
+        this.activeInstanceId,
+        workspacePath,
+      );
+
+      // Ensure the instance store record has the terminal key so that
+      // ExtensionLifecycle.getActiveTerminalId() can resolve it correctly.
+      // Without this, the store may be empty (fresh install) or the record
+      // may lack a terminalKey, causing all send commands to target a
+      // non-existent terminal ID.
+      if (this.instanceStore) {
+        try {
+          const existing = this.instanceStore.get(this.activeInstanceId);
+          if (existing) {
+            this.instanceStore.upsert({
+              ...existing,
+              runtime: {
+                ...existing.runtime,
+                terminalKey: this.activeInstanceId,
+              },
+            });
+          } else {
+            // Fresh install: no record exists yet — create one so getActive() works
+            this.instanceStore.upsert({
+              config: { id: this.activeInstanceId },
+              runtime: { terminalKey: this.activeInstanceId, port },
+              state: "connected",
+            });
           }
-        : {},
-      port,
-      this.lastKnownCols || undefined,
-      this.lastKnownRows || undefined,
-      this.activeInstanceId,
-    );
+        } catch (err) {
+          this.logger.warn(
+            `[OpenCodeTuiProvider] Failed to update instance store with terminal key: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
 
-    // Ensure the instance store record has the terminal key so that
-    // ExtensionLifecycle.getActiveTerminalId() can resolve it correctly.
-    // Without this, the store may be empty (fresh install) or the record
-    // may lack a terminalKey, causing all send commands to target a
-    // non-existent terminal ID.
-    if (this.instanceStore) {
-      try {
-        const existing = this.instanceStore.get(this.activeInstanceId);
-        if (existing) {
-          this.instanceStore.upsert({
-            ...existing,
-            runtime: {
-              ...existing.runtime,
-              terminalKey: this.activeInstanceId,
-            },
-          });
-        } else {
-          // Fresh install: no record exists yet — create one so getActive() works
-          this.instanceStore.upsert({
-            config: { id: this.activeInstanceId },
-            runtime: { terminalKey: this.activeInstanceId, port },
-            state: "connected",
+      this.dataListener = this.terminalManager.onData((event) => {
+        if (event.id === this.activeInstanceId) {
+          this._view?.webview.postMessage({
+            type: "terminalOutput",
+            data: event.data,
           });
         }
-      } catch (err) {
-        this.logger.warn(
-          `[OpenCodeTuiProvider] Failed to update instance store with terminal key: ${err instanceof Error ? err.message : String(err)}`,
+      });
+
+      this.exitListener = this.terminalManager.onExit((id) => {
+        if (id === this.activeInstanceId) {
+          this.resetState();
+          this._view?.webview.postMessage({
+            type: "terminalExited",
+          });
+        }
+      });
+
+      this.isStarted = true;
+
+      if (enableHttpApi && port) {
+        this.apiClient = new OpenCodeApiClient(port, 10, 200, httpTimeout);
+        await this.pollForHttpReadiness();
+      } else {
+        this.logger.info(
+          "[OpenCodeTuiProvider] HTTP API disabled or unavailable, using message passing fallback",
         );
+        this.httpAvailable = false;
       }
-    }
-
-    this.dataListener = this.terminalManager.onData((event) => {
-      if (event.id === this.activeInstanceId) {
-        this._view?.webview.postMessage({
-          type: "terminalOutput",
-          data: event.data,
-        });
-      }
-    });
-
-    this.exitListener = this.terminalManager.onExit((id) => {
-      if (id === this.activeInstanceId) {
-        this.resetState();
-        this._view?.webview.postMessage({
-          type: "terminalExited",
-        });
-      }
-    });
-
-    this.isStarted = true;
-
-    if (enableHttpApi && port) {
-      this.apiClient = new OpenCodeApiClient(port, 10, 200, httpTimeout);
-      await this.pollForHttpReadiness();
-    } else {
-      this.logger.info(
-        "[OpenCodeTuiProvider] HTTP API disabled or unavailable, using message passing fallback",
-      );
-      this.httpAvailable = false;
+    } finally {
+      this.isStarting = false;
     }
   }
 
@@ -355,6 +379,69 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private resolveStartupWorkspacePath(): StartupWorkspaceResolution {
+    const instanceWorkspacePath = this.resolveWorkspacePathFromActiveInstance();
+    if (instanceWorkspacePath) {
+      return { workspacePath: instanceWorkspacePath, isWorkspaceScoped: true };
+    }
+
+    const workspaceFolderPath =
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (workspaceFolderPath) {
+      return { workspacePath: workspaceFolderPath, isWorkspaceScoped: true };
+    }
+
+    return { workspacePath: os.homedir(), isWorkspaceScoped: false };
+  }
+
+  private resolveWorkspacePathFromActiveInstance(): string | undefined {
+    if (!this.instanceStore) {
+      return undefined;
+    }
+
+    const record = this.instanceStore.get(this.activeInstanceId);
+    const workspaceUri = record?.config.workspaceUri;
+    if (!workspaceUri) {
+      return undefined;
+    }
+
+    try {
+      const parsed = vscode.Uri.parse(workspaceUri);
+      return parsed.fsPath || undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async ensureWorkspaceSession(workspacePath: string): Promise<void> {
+    if (!this.tmuxSessionManager) {
+      return;
+    }
+
+    const sessionName = path.basename(workspacePath) || this.activeInstanceId;
+
+    try {
+      const result = await this.tmuxSessionManager.ensureSession(
+        sessionName,
+        workspacePath,
+      );
+      this.logger.info(
+        `[OpenCodeTuiProvider] tmux session ${result.action}: ${result.session.id}`,
+      );
+    } catch (error) {
+      if (error instanceof TmuxUnavailableError) {
+        this.logger.info(
+          "[OpenCodeTuiProvider] tmux unavailable, continuing with default startup",
+        );
+        return;
+      }
+
+      this.logger.warn(
+        `[OpenCodeTuiProvider] Failed to ensure tmux session: ${error instanceof Error ? error.message : String(error)}. Continuing with default startup.`,
+      );
+    }
   }
 
   /**
@@ -428,6 +515,7 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
 
   private resetState(releasePorts: boolean = true): void {
     this.isStarted = false;
+    this.isStarting = false;
     this.httpAvailable = false;
     this.apiClient = undefined;
     this.autoContextSent = false;

@@ -16,6 +16,7 @@ import { InstanceQuickPick } from "../services/InstanceQuickPick";
 import { InstanceController } from "../services/InstanceController";
 import { PortManager } from "../services/PortManager";
 import { ConnectionResolver } from "../services/ConnectionResolver";
+import { TmuxSessionManager } from "../services/TmuxSessionManager";
 
 // Module-level state for batching file sends from context menu
 let fileSendAccumulator: vscode.Uri[] = [];
@@ -40,6 +41,7 @@ export class ExtensionLifecycle {
   private instanceQuickPick: InstanceQuickPick | undefined;
   private instanceController: InstanceController | undefined;
   private portManager: PortManager | undefined;
+  private tmuxSessionManager: TmuxSessionManager | undefined;
 
   private static readonly TERMINAL_ID = "opencode-main";
 
@@ -77,6 +79,7 @@ export class ExtensionLifecycle {
       // Initialize multi-instance support
       this.instanceStore = new InstanceStore();
       this.portManager = new PortManager(this.instanceStore);
+      this.tmuxSessionManager = new TmuxSessionManager();
       this.instanceRegistry = new InstanceRegistry(context);
       this.instanceRegistry.hydrate(this.instanceStore);
 
@@ -118,6 +121,7 @@ export class ExtensionLifecycle {
         this.terminalManager,
         this.captureManager,
         this.instanceStore,
+        this.tmuxSessionManager,
       );
 
       // Register webview provider
@@ -282,7 +286,10 @@ export class ExtensionLifecycle {
             }, 100);
           }
 
-          vscode.window.setStatusBarMessage("$(check) Sent all open files", 3000);
+          vscode.window.setStatusBarMessage(
+            "$(check) Sent all open files",
+            3000,
+          );
         }
       },
     );
@@ -409,7 +416,9 @@ export class ExtensionLifecycle {
               true,
             );
           }
-          vscode.window.showInformationMessage(`Opened in new window: ${newRecord.config.label}`);
+          vscode.window.showInformationMessage(
+            `Opened in new window: ${newRecord.config.label}`,
+          );
         } catch (error) {
           this.outputChannelService?.error(
             `Failed to open in new window: ${error instanceof Error ? error.message : String(error)}`,
@@ -431,7 +440,9 @@ export class ExtensionLifecycle {
         }
 
         try {
-          const workspaceUri = uri?.toString() || vscode.workspace.workspaceFolders?.[0]?.uri.toString();
+          const workspaceUri =
+            uri?.toString() ||
+            vscode.workspace.workspaceFolders?.[0]?.uri.toString();
           if (!workspaceUri) {
             vscode.window.showWarningMessage("No workspace folder available");
             return;
@@ -452,7 +463,9 @@ export class ExtensionLifecycle {
 
           // Actually spawn the OpenCode process for this instance
           await this.instanceController?.spawn(newId);
-          vscode.window.showInformationMessage(`Spawned OpenCode for workspace: ${newRecord.config.label}`);
+          vscode.window.showInformationMessage(
+            `Spawned OpenCode for workspace: ${newRecord.config.label}`,
+          );
         } catch (error) {
           this.outputChannelService?.error(
             `Failed to spawn for workspace: ${error instanceof Error ? error.message : String(error)}`,
@@ -515,7 +528,7 @@ export class ExtensionLifecycle {
       }
     } else {
       this.terminalManager.writeToTerminal(
-          this.getActiveTerminalId(),
+        this.getActiveTerminalId(),
         `${prompt}\n`,
       );
     }

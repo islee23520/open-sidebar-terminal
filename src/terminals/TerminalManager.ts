@@ -35,6 +35,7 @@ export class TerminalManager {
     cols?: number,
     rows?: number,
     instanceId?: string,
+    cwd?: string,
   ): Terminal {
     if (this.terminals.has(id)) {
       this.killTerminal(id);
@@ -60,7 +61,10 @@ export class TerminalManager {
       name: "xterm-256color",
       cols: cols || 80,
       rows: rows || 24,
-      cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || os.homedir(),
+      cwd:
+        cwd ||
+        vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ||
+        os.homedir(),
       env: mergedEnv,
       handleFlowControl: false,
     });
