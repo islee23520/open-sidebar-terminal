@@ -5,6 +5,18 @@
 src/**
 test/**
 out/**
+build/**
+
+# Local agent/workflow artifacts
+.agent/**
+.agents/**
+.claude/**
+.kiro/**
+.omc/**
+.opencode/**
+.sisyphus/**
+.trae/**
+.windsurf/**
 
 # Build configuration
 tsconfig.json
@@ -24,6 +36,7 @@ dev-install.sh
 # Git
 .git/**
 .DS_Store
+*.vsix
 
 # Dependencies are automatically included by vsce
 # node_modules/** is already handled by vsce (includes 'dependencies', excludes 'devDependencies')

@@ -46,13 +46,6 @@
           "type": "webview",
           "icon": "$(terminal)",
           "contextualTitle": "OpenCode TUI"
-        },
-        {
-          "id": "opencodeTui.instancesDashboard",
-          "name": "Instances",
-          "type": "webview",
-          "icon": "$(server)",
-          "contextualTitle": "OpenCode Instances"
         }
       ]
     },
@@ -96,19 +89,19 @@
       },
       {
         "command": "opencode.openInNewWindow",
-        "title": "Open Instance in New Window",
+        "title": "Open Tmux Session in New Window",
         "category": "OpenCode TUI",
         "icon": "$(empty-window)"
       },
       {
         "command": "opencode.spawnForWorkspace",
-        "title": "Spawn Instance for Workspace",
+        "title": "Spawn Tmux Session for Workspace",
         "category": "OpenCode TUI",
         "icon": "$(add)"
       },
       {
         "command": "opencodeTui.selectInstance",
-        "title": "Select OpenCode Instance",
+        "title": "Select OpenCode Tmux Session",
         "category": "OpenCode TUI",
         "icon": "$(server-environment)"
       }

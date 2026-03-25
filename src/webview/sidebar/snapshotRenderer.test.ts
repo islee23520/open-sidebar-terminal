@@ -73,36 +73,12 @@ describe("SessionTreeRenderer", () => {
 
     tree.updateFromSnapshot(snapshot);
 
-    const groups = container.querySelectorAll(".session-tree-group");
-    expect(groups.length).toBe(2);
+    const tabs = container.querySelectorAll(".session-tab-item");
+    expect(tabs.length).toBe(3);
 
-    const repoAGroup = groups[0];
-    expect(repoAGroup.textContent).toContain("repo-a");
-    expect(repoAGroup.textContent).toContain("session1");
-    expect(repoAGroup.textContent).toContain("session2");
-
-    const activeItem = container.querySelector(".session-tree-item.active");
+    const activeItem = container.querySelector(".session-tab-item.active");
     expect(activeItem).not.toBeNull();
     expect(activeItem?.textContent).toBe("session2");
-  });
-
-  it("handles group toggle", () => {
-    const snapshot: TreeSnapshot = {
-      type: "treeSnapshot",
-      sessions: [
-        { id: "1", name: "session1", workspace: "repo-a", isActive: false },
-      ],
-      activeSessionId: null,
-    };
-
-    tree.updateFromSnapshot(snapshot);
-
-    const header = container.querySelector(
-      ".session-tree-group-header",
-    ) as HTMLElement;
-    header.click();
-
-    expect(onGroupToggle).toHaveBeenCalledWith("repo-a");
   });
 
   it("handles session click", () => {
@@ -116,7 +92,7 @@ describe("SessionTreeRenderer", () => {
 
     tree.updateFromSnapshot(snapshot);
 
-    const item = container.querySelector(".session-tree-item") as HTMLElement;
+    const item = container.querySelector(".session-tab-item") as HTMLElement;
     item.click();
 
     expect(onSessionClick).toHaveBeenCalledWith("1");

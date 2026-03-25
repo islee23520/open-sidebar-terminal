@@ -11,7 +11,6 @@ import { InstanceDiscoveryService } from "../services/InstanceDiscoveryService";
 import { OpenCodeApiClient } from "../services/OpenCodeApiClient";
 import { InstanceStore } from "../services/InstanceStore";
 import { InstanceRegistry } from "../services/InstanceRegistry";
-import { InstancesDashboardProvider } from "../providers/InstancesDashboardProvider";
 import { InstanceQuickPick } from "../services/InstanceQuickPick";
 import { InstanceController } from "../services/InstanceController";
 import { PortManager } from "../services/PortManager";
@@ -37,7 +36,6 @@ export class ExtensionLifecycle {
   private codeActionProvider: OpenCodeCodeActionProvider | undefined;
   private instanceStore: InstanceStore | undefined;
   private instanceRegistry: InstanceRegistry | undefined;
-  private instancesDashboardProvider: InstancesDashboardProvider | undefined;
   private instanceQuickPick: InstanceQuickPick | undefined;
   private instanceController: InstanceController | undefined;
   private portManager: PortManager | undefined;
@@ -135,19 +133,6 @@ export class ExtensionLifecycle {
         },
       );
       context.subscriptions.push(provider);
-
-      // Register instances dashboard provider
-      this.instancesDashboardProvider = new InstancesDashboardProvider(
-        context,
-        this.instanceStore,
-        this.instanceController,
-        logger.getChannel(),
-      );
-      const dashboardProvider = vscode.window.registerWebviewViewProvider(
-        InstancesDashboardProvider.viewType,
-        this.instancesDashboardProvider,
-      );
-      context.subscriptions.push(dashboardProvider);
 
       // Register commands
       this.registerCommands(context);
@@ -688,11 +673,6 @@ export class ExtensionLifecycle {
     if (this.instanceRegistry) {
       this.instanceRegistry.dispose();
       this.instanceRegistry = undefined;
-    }
-
-    if (this.instancesDashboardProvider) {
-      this.instancesDashboardProvider.dispose();
-      this.instancesDashboardProvider = undefined;
     }
 
     if (this.instanceStore) {

@@ -1149,55 +1149,57 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
       overflow: hidden;
       background-color: #1e1e1e;
       display: flex;
+      flex-direction: column;
     }
     #sidebar-container {
-      width: 200px;
-      height: 100%;
-      border-right: 1px solid #333;
-      overflow-y: auto;
+      width: 100%;
+      min-height: 34px;
+      max-height: 68px;
+      border-bottom: 1px solid #333;
+      overflow-x: auto;
+      overflow-y: hidden;
       display: none; /* Hidden by default, shown when tree data arrives */
-      flex-direction: column;
+      align-items: center;
     }
     #sidebar-container:not(:empty) {
       display: flex;
     }
     #terminal-container {
       flex: 1;
-      height: 100%;
+      height: calc(100% - 34px);
       min-width: 0;
     }
-    /* Sidebar styles */
-    .session-tree-group-header {
-      cursor: pointer;
-      padding: 4px 8px;
-      font-weight: bold;
-      color: #ccc;
-      user-select: none;
+    .session-tab-list {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      min-width: min-content;
     }
-    .session-tree-group-header:hover {
-      background-color: #2a2d2e;
-    }
-    .session-tree-item {
-      cursor: pointer;
-      padding: 4px 8px 4px 24px;
+    .session-tab-item {
+      border: 1px solid #3a3a3a;
+      border-radius: 6px;
+      background: #252526;
       color: #ccc;
-      user-select: none;
+      padding: 4px 10px;
+      font-size: 12px;
+      line-height: 1.2;
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      cursor: pointer;
     }
-    .session-tree-item:hover {
+    .session-tab-item:hover {
       background-color: #2a2d2e;
     }
-    .session-tree-item.active {
+    .session-tab-item.active {
       background-color: #04395e;
+      border-color: #0e639c;
       color: #fff;
     }
-    .session-tree-empty-state {
-      padding: 12px;
+    .session-tab-empty-state {
+      padding: 8px 12px;
       color: #888;
-      text-align: center;
       font-style: italic;
+      white-space: nowrap;
     }
   </style>
 </head>

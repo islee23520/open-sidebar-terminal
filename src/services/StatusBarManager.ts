@@ -5,6 +5,7 @@ export class StatusBarManager {
   private statusBarItem: vscode.StatusBarItem;
   private instanceStore?: InstanceStore;
   private activeInstanceSubscription?: vscode.Disposable;
+  private changeSubscription?: vscode.Disposable;
 
   /**
    * Creates a new StatusBarManager.
@@ -16,7 +17,7 @@ export class StatusBarManager {
       vscode.StatusBarAlignment.Left,
       1,
     );
-    this.statusBarItem.tooltip = "Open OpenCode TUI";
+    this.statusBarItem.tooltip = "Manage OpenCode tmux sessions";
     this.statusBarItem.command = "opencodeTui.selectInstance";
     this.instanceStore = instanceStore;
 
@@ -28,14 +29,14 @@ export class StatusBarManager {
         },
       );
       // Also subscribe to general changes to update port/label info
-      this.instanceStore.onDidChange(() => {
+      this.changeSubscription = this.instanceStore.onDidChange(() => {
         this.updateStatus();
       });
       // Initial update
       this.updateStatus();
     } else {
       // Fallback to static text when no store is provided
-      this.statusBarItem.text = "$(terminal) OpenCode";
+      this.statusBarItem.text = "$(terminal) OpenCode • tmux: idle";
     }
   }
 
@@ -53,10 +54,11 @@ export class StatusBarManager {
       this.updateStatusForInstance(active);
     } catch {
       // Store is empty or instance not found
-      this.statusBarItem.text = "$(circle-outline) OpenCode";
+      this.statusBarItem.text = "$(circle-outline) OpenCode • tmux: idle";
       this.statusBarItem.color = new vscode.ThemeColor(
         "statusBarItem.errorForeground",
       );
+      this.statusBarItem.tooltip = "No active OpenCode tmux session";
     }
   }
 
@@ -65,15 +67,51 @@ export class StatusBarManager {
    * @param instance - The instance record to display.
    */
   private updateStatusForInstance(instance: InstanceRecord): void {
-    const isConnected = instance.state === "connected";
-    const icon = isConnected ? "$(circle-filled)" : "$(circle-outline)";
+    const icon = this.resolveIcon(instance.state);
     const port = instance.runtime.port ? `:${instance.runtime.port}` : "";
     const label = instance.config.label ? ` [${instance.config.label}]` : "";
+    const workspace = instance.config.workspaceUri
+      ? `\nWorkspace: ${instance.config.workspaceUri}`
+      : "";
 
-    this.statusBarItem.text = `${icon} OpenCode${port}${label}`;
-    this.statusBarItem.color = isConnected
-      ? undefined
-      : new vscode.ThemeColor("statusBarItem.errorForeground");
+    this.statusBarItem.text = `${icon} OpenCode • tmux: ${instance.state}${port}${label}`;
+    this.statusBarItem.color = this.resolveColor(instance.state);
+    this.statusBarItem.tooltip = `Active tmux session: ${instance.config.id}${workspace}`;
+  }
+
+  private resolveIcon(state: InstanceRecord["state"]): string {
+    switch (state) {
+      case "connected":
+        return "$(circle-filled)";
+      case "connecting":
+      case "resolving":
+      case "spawning":
+      case "stopping":
+        return "$(loading~spin)";
+      case "error":
+        return "$(error)";
+      case "disconnected":
+      default:
+        return "$(circle-outline)";
+    }
+  }
+
+  private resolveColor(
+    state: InstanceRecord["state"],
+  ): vscode.ThemeColor | undefined {
+    switch (state) {
+      case "connected":
+        return undefined;
+      case "connecting":
+      case "resolving":
+      case "spawning":
+      case "stopping":
+        return new vscode.ThemeColor("statusBarItem.warningForeground");
+      case "error":
+      case "disconnected":
+      default:
+        return new vscode.ThemeColor("statusBarItem.errorForeground");
+    }
   }
 
   public show(): void {
@@ -93,6 +131,7 @@ export class StatusBarManager {
 
   public dispose(): void {
     this.activeInstanceSubscription?.dispose();
+    this.changeSubscription?.dispose();
     this.statusBarItem.dispose();
   }
 }
