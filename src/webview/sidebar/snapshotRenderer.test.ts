@@ -78,7 +78,7 @@ describe("SessionTreeRenderer", () => {
 
     const activeItem = container.querySelector(".session-tab-item.active");
     expect(activeItem).not.toBeNull();
-    expect(activeItem?.textContent).toBe("session2");
+    expect(activeItem?.textContent).toBe("tmux");
   });
 
   it("handles session click", () => {

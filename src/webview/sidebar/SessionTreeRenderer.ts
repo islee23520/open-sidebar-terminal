@@ -62,8 +62,8 @@ export class SessionTreeRenderer {
     const itemEl = document.createElement("button");
     itemEl.type = "button";
     itemEl.className = `session-tab-item ${isActive ? "active" : ""}`;
-    itemEl.textContent = session.name;
-    itemEl.title = session.workspace || session.name;
+    itemEl.textContent = "tmux";
+    itemEl.title = `${session.name} (${session.workspace || "unknown"})`;
     itemEl.onclick = () => this.onSessionClick(session.id);
     return itemEl;
   }

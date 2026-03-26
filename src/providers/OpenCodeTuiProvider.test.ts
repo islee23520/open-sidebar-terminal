@@ -252,6 +252,43 @@ describe("OpenCodeTuiProvider", () => {
     });
   });
 
+  it("filters treeSnapshot sessions to current workspace only", async () => {
+    mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
+    vscode.workspace.workspaceFolders = [
+      {
+        uri: {
+          fsPath: "/workspaces/repo-a",
+          toString: () => "file:///workspaces/repo-a",
+        },
+      },
+    ] as any;
+
+    const createTreeSnapshot = vi.fn().mockResolvedValue({
+      type: "treeSnapshot",
+      sessions: [
+        { id: "repo-a", name: "repo-a", workspace: "repo-a", isActive: true },
+        { id: "repo-b", name: "repo-b", workspace: "repo-b", isActive: false },
+      ],
+      activeSessionId: "repo-a",
+    } satisfies TreeSnapshot);
+    const tmuxSessionManager = {
+      createTreeSnapshot,
+    } as unknown as TmuxSessionManager;
+
+    provider = createProvider({ tmuxSessionManager });
+    const { view } = resolveProvider(provider);
+    await flushAsyncStartup();
+
+    expect(view.webview.postMessage).toHaveBeenCalledWith({
+      type: "treeSnapshot",
+      sessions: [
+        { id: "repo-a", name: "repo-a", workspace: "repo-a", isActive: true },
+      ],
+      activeSessionId: "repo-a",
+      emptyState: undefined,
+    });
+  });
+
   it("starts the default terminal path without sidebar tree interaction", async () => {
     mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
     provider = createProvider();
@@ -406,7 +443,7 @@ describe("OpenCodeTuiProvider", () => {
     expect(createTerminalSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("skips tmux ensure when startup falls back to home without workspace", async () => {
+  it("attaches to existing tmux session when no workspace is open", async () => {
     mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
     const ensureSession = vi.fn().mockResolvedValue({
       action: "attached",
@@ -417,8 +454,17 @@ describe("OpenCodeTuiProvider", () => {
         isActive: true,
       },
     });
+    const discoverSessions = vi.fn().mockResolvedValue([
+      {
+        id: "shared-session",
+        name: "shared-session",
+        workspace: "shared",
+        isActive: true,
+      },
+    ]);
     const tmuxSessionManager = {
       ensureSession,
+      discoverSessions,
     } as unknown as TmuxSessionManager;
 
     provider = createProvider({ tmuxSessionManager });
@@ -429,9 +475,10 @@ describe("OpenCodeTuiProvider", () => {
     await flushAsyncStartup();
 
     expect(ensureSession).not.toHaveBeenCalled();
+    expect(discoverSessions).toHaveBeenCalledTimes(1);
     expect(createTerminalSpy).toHaveBeenCalledWith(
       "opencode-main",
-      "opencode -c",
+      "tmux attach-session -t shared-session",
       {},
       undefined,
       96,

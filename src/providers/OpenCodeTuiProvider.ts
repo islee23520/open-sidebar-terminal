@@ -255,6 +255,8 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
         if (ensuredSessionId) {
           tmuxSessionId = ensuredSessionId;
         }
+      } else if (!tmuxSessionId) {
+        tmuxSessionId = await this.resolveFallbackTmuxSessionId();
       }
 
       const terminalCommand = this.resolveTerminalStartupCommand(
@@ -405,12 +407,46 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
       const snapshot = await this.tmuxSessionManager.createTreeSnapshot(
         this.resolveSnapshotActiveSessionId(),
       );
-      this._view.webview.postMessage(this.withWorkspaceEmptyState(snapshot));
+      const filteredSnapshot = this.filterSnapshotToCurrentWorkspace(snapshot);
+      this._view.webview.postMessage(
+        this.withWorkspaceEmptyState(filteredSnapshot),
+      );
     } catch (error) {
       this.logger.warn(
         `[OpenCodeTuiProvider] Failed to emit tree snapshot: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
+  }
+
+  private filterSnapshotToCurrentWorkspace(
+    snapshot: TreeSnapshot,
+  ): TreeSnapshot {
+    const workspacePath = this.resolveWorkspacePathFromActiveInstance();
+    const fallbackWorkspacePath =
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const currentWorkspacePath = workspacePath || fallbackWorkspacePath;
+
+    if (!currentWorkspacePath) {
+      return snapshot;
+    }
+
+    const workspaceName = path.basename(currentWorkspacePath);
+    const sessions = snapshot.sessions.filter(
+      (session) => session.workspace === workspaceName,
+    );
+
+    const activeSessionId = sessions.some(
+      (session) => session.id === snapshot.activeSessionId,
+    )
+      ? snapshot.activeSessionId
+      : null;
+
+    return {
+      ...snapshot,
+      sessions,
+      activeSessionId,
+      emptyState: sessions.length === 0 ? "no-sessions" : undefined,
+    };
   }
 
   private async pollForHttpReadiness(): Promise<void> {
@@ -539,6 +575,28 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
     return this.instanceStore.get(instanceId)?.runtime.tmuxSessionId;
   }
 
+  private async resolveFallbackTmuxSessionId(): Promise<string | undefined> {
+    if (!this.tmuxSessionManager) {
+      return undefined;
+    }
+
+    try {
+      const sessions = await this.tmuxSessionManager.discoverSessions();
+      if (sessions.length === 0) {
+        return undefined;
+      }
+
+      const preferredSession =
+        sessions.find((session) => session.isActive) ?? sessions[0];
+      return preferredSession?.id;
+    } catch (error) {
+      this.logger.warn(
+        `[OpenCodeTuiProvider] Failed to resolve fallback tmux session: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return undefined;
+    }
+  }
+
   private resolveInstanceIdFromSessionId(sessionId: string): InstanceId {
     if (!this.instanceStore) {
       return sessionId;
@@ -572,6 +630,10 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
     });
 
     return workspaceMapped?.config.id ?? sessionId;
+  }
+
+  public async switchToTmuxSession(sessionId: string): Promise<void> {
+    await this.switchToInstance(this.resolveInstanceIdFromSessionId(sessionId));
   }
 
   /**
