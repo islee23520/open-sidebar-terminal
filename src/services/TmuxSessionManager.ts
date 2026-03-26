@@ -130,7 +130,6 @@ export class TmuxSessionManager {
     );
 
     if (existingSession) {
-      await this.attachSession(existingSession.id);
       return {
         action: "attached",
         session: {

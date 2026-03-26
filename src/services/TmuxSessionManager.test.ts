@@ -89,13 +89,10 @@ describe("TmuxSessionManager", () => {
     await expect(manager.isAvailable()).resolves.toBe(false);
   });
 
-  it("attaches to an existing tmux session before creating a new one", async () => {
+  it("reuses an existing tmux session without non-interactive attach", async () => {
     mockExecSequence([
       {
         stdout: "repo-a\t0\t/workspaces/repo-a",
-      },
-      {
-        stdout: "",
       },
     ]);
 
@@ -110,21 +107,13 @@ describe("TmuxSessionManager", () => {
         isActive: true,
       },
     });
-    expect(execFile).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(execFile).mock.calls[1]?.[1]).toEqual([
-      "attach-session",
-      "-t",
-      "repo-a",
-    ]);
+    expect(execFile).toHaveBeenCalledTimes(1);
   });
 
-  it("prefers attaching to exact workspace path match over creating a new session", async () => {
+  it("prefers exact workspace path match over creating a new session", async () => {
     mockExecSequence([
       {
         stdout: ["legacy-repo-a\t0\t/workspaces/repo-a"].join("\n"),
-      },
-      {
-        stdout: "",
       },
     ]);
 
@@ -139,12 +128,7 @@ describe("TmuxSessionManager", () => {
         isActive: true,
       },
     });
-    expect(execFile).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(execFile).mock.calls[1]?.[1]).toEqual([
-      "attach-session",
-      "-t",
-      "legacy-repo-a",
-    ]);
+    expect(execFile).toHaveBeenCalledTimes(1);
   });
 
   it("avoids wrong-session attachment on name collision by preferring workspace path", async () => {
@@ -154,9 +138,6 @@ describe("TmuxSessionManager", () => {
           "repo-a\t0\t/workspaces/repo-a-archive",
           "repo-a-current\t0\t/workspaces/repo-a",
         ].join("\n"),
-      },
-      {
-        stdout: "",
       },
     ]);
 
@@ -171,12 +152,7 @@ describe("TmuxSessionManager", () => {
         isActive: true,
       },
     });
-    expect(execFile).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(execFile).mock.calls[1]?.[1]).toEqual([
-      "attach-session",
-      "-t",
-      "repo-a-current",
-    ]);
+    expect(execFile).toHaveBeenCalledTimes(1);
   });
 
   it("creates a collision-safe session when stale metadata prevents workspace match", async () => {
