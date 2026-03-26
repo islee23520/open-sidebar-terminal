@@ -106,7 +106,7 @@ describe("OpenCodeTuiProvider", () => {
     await Promise.resolve();
   }
 
-  it("resolves switchSession tmux ids to instance ids", () => {
+  it("routes switchSession messages through tmux session switching", () => {
     mockConfiguration();
     const instanceStore = new InstanceStore();
     instanceStore.upsert({
@@ -121,35 +121,35 @@ describe("OpenCodeTuiProvider", () => {
     provider = createProvider({ instanceStore });
     const { messageHandler } = resolveProvider(provider);
     const switchSpy = vi
-      .spyOn(provider, "switchToInstance")
+      .spyOn(provider, "switchToTmuxSession")
       .mockResolvedValue(undefined);
 
     messageHandler({ type: "switchSession", sessionId: "tmux-b" });
 
-    expect(switchSpy).toHaveBeenCalledWith("workspace-b-instance");
+    expect(switchSpy).toHaveBeenCalledWith("tmux-b");
   });
 
-  it("resolves switchSession by workspace basename when tmux runtime id is missing", () => {
+  it("routes kill/create/native session messages to provider handlers", () => {
     mockConfiguration();
-    const instanceStore = new InstanceStore();
-    instanceStore.upsert({
-      config: {
-        id: "workspace-c-instance",
-        workspaceUri: "file:///workspaces/workspace-c",
-      },
-      runtime: { terminalKey: "workspace-c-instance" },
-      state: "connected",
-    });
-
-    provider = createProvider({ instanceStore });
+    provider = createProvider();
     const { messageHandler } = resolveProvider(provider);
-    const switchSpy = vi
-      .spyOn(provider, "switchToInstance")
+    const killSpy = vi
+      .spyOn(provider, "killTmuxSession")
+      .mockResolvedValue(undefined);
+    const createSpy = vi
+      .spyOn(provider, "createTmuxSession")
+      .mockResolvedValue(undefined);
+    const nativeSpy = vi
+      .spyOn(provider, "switchToNativeShell")
       .mockResolvedValue(undefined);
 
-    messageHandler({ type: "switchSession", sessionId: "workspace-c" });
+    messageHandler({ type: "killSession", sessionId: "tmux-k" });
+    messageHandler({ type: "createTmuxSession" });
+    messageHandler({ type: "switchNativeShell" });
 
-    expect(switchSpy).toHaveBeenCalledWith("workspace-c-instance");
+    expect(killSpy).toHaveBeenCalledWith("tmux-k");
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    expect(nativeSpy).toHaveBeenCalledTimes(1);
   });
 
   it("emits a populated treeSnapshot to the webview", async () => {
@@ -525,7 +525,72 @@ describe("OpenCodeTuiProvider", () => {
       createTerminalSpy.mock.calls[createTerminalSpy.mock.calls.length - 1];
     expect(lastCall).toBeDefined();
     expect(lastCall?.[1]).toBe("tmux attach-session -t target-z");
-    expect(lastCall?.[6]).toBe("target-z");
+    expect(lastCall?.[6]).toBe("workspace-z-instance");
+  });
+
+  it("switches to native shell explicitly when requested", async () => {
+    mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
+    const ensureSession = vi.fn();
+    const discoverSessions = vi.fn();
+    const tmuxSessionManager = {
+      ensureSession,
+      discoverSessions,
+    } as unknown as TmuxSessionManager;
+
+    provider = createProvider({ tmuxSessionManager });
+    const createTerminalSpy = vi.spyOn(terminalManager, "createTerminal");
+    resolveProvider(provider);
+
+    await provider.switchToNativeShell();
+    await flushAsyncStartup();
+
+    const lastCall =
+      createTerminalSpy.mock.calls[createTerminalSpy.mock.calls.length - 1];
+    expect(lastCall?.[1]).toBe("opencode -c");
+    expect(ensureSession).not.toHaveBeenCalled();
+    expect(discoverSessions).not.toHaveBeenCalled();
+  });
+
+  it("creates a new tmux session from tab action with collision-safe naming", async () => {
+    mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
+    const discoverSessions = vi.fn().mockResolvedValue([
+      { id: "repo-a", name: "repo-a", workspace: "repo-a", isActive: false },
+      {
+        id: "repo-a-2",
+        name: "repo-a-2",
+        workspace: "repo-a",
+        isActive: false,
+      },
+    ]);
+    const createSession = vi.fn().mockResolvedValue(undefined);
+    const tmuxSessionManager = {
+      discoverSessions,
+      createSession,
+    } as unknown as TmuxSessionManager;
+
+    provider = createProvider({ tmuxSessionManager });
+    const createTerminalSpy = vi.spyOn(terminalManager, "createTerminal");
+    resolveProvider(provider);
+
+    vscode.workspace.workspaceFolders = [
+      {
+        uri: {
+          fsPath: "/workspaces/repo-a",
+          toString: () => "file:///workspaces/repo-a",
+        },
+      },
+    ] as any;
+
+    await provider.createTmuxSession();
+    await flushAsyncStartup();
+
+    expect(createSession).toHaveBeenCalledWith(
+      "repo-a-3",
+      "/workspaces/repo-a",
+    );
+    const lastCall =
+      createTerminalSpy.mock.calls[createTerminalSpy.mock.calls.length - 1];
+    expect(lastCall?.[1]).toBe("tmux attach-session -t repo-a-3");
   });
 
   it("ignores treeSnapshot payloads in the provider message handler", () => {

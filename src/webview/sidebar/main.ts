@@ -12,6 +12,15 @@ export function initSidebar(vscode: any) {
     (sessionId) => {
       vscode.postMessage({ type: "switchSession", sessionId });
     },
+    (sessionId) => {
+      vscode.postMessage({ type: "killSession", sessionId });
+    },
+    () => {
+      vscode.postMessage({ type: "createTmuxSession" });
+    },
+    () => {
+      vscode.postMessage({ type: "switchNativeShell" });
+    },
     (groupName) => {
       tree.toggleGroup(groupName);
     },

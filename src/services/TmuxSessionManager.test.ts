@@ -224,6 +224,22 @@ describe("TmuxSessionManager", () => {
     ]);
   });
 
+  it("kills an existing tmux session", async () => {
+    mockExecSequence([
+      {
+        stdout: "",
+      },
+    ]);
+
+    await expect(manager.killSession("repo-k")).resolves.toBeUndefined();
+    expect(execFile).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(execFile).mock.calls[0]?.[1]).toEqual([
+      "kill-session",
+      "-t",
+      "repo-k",
+    ]);
+  });
+
   it("surfaces a dedicated error when tmux is missing", async () => {
     const missingTmuxError = Object.assign(new Error("spawn tmux ENOENT"), {
       code: "ENOENT",

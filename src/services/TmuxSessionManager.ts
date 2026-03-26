@@ -196,6 +196,18 @@ export class TmuxSessionManager {
     }
   }
 
+  public async killSession(sessionName: string): Promise<void> {
+    try {
+      await this.runTmux(["kill-session", "-t", sessionName]);
+    } catch (error) {
+      if (this.isTmuxUnavailable(error)) {
+        throw new TmuxUnavailableError();
+      }
+
+      throw error;
+    }
+  }
+
   private parseSessions(stdout: string): DiscoveredSession[] {
     return stdout
       .split(/\r?\n/)

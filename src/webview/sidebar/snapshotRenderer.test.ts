@@ -9,16 +9,25 @@ describe("SessionTreeRenderer", () => {
   let tree: SessionTree;
   let renderer: SessionTreeRenderer;
   let onSessionClick: any;
+  let onKillSession: any;
+  let onCreateSession: any;
+  let onSwitchNativeShell: any;
   let onGroupToggle: any;
 
   beforeEach(() => {
     container = document.createElement("div");
     onSessionClick = vi.fn();
+    onKillSession = vi.fn();
+    onCreateSession = vi.fn();
+    onSwitchNativeShell = vi.fn();
     onGroupToggle = vi.fn();
     tree = new SessionTree();
     renderer = new SessionTreeRenderer(
       container,
       onSessionClick,
+      onKillSession,
+      onCreateSession,
+      onSwitchNativeShell,
       onGroupToggle,
     );
 
@@ -96,5 +105,40 @@ describe("SessionTreeRenderer", () => {
     item.click();
 
     expect(onSessionClick).toHaveBeenCalledWith("1");
+  });
+
+  it("handles kill, create, and native action clicks", () => {
+    const snapshot: TreeSnapshot = {
+      type: "treeSnapshot",
+      sessions: [
+        { id: "1", name: "session1", workspace: "repo-a", isActive: false },
+      ],
+      activeSessionId: null,
+    };
+
+    tree.updateFromSnapshot(snapshot);
+
+    const killButton = container.querySelector(
+      ".session-tab-kill",
+    ) as HTMLElement;
+    killButton.click();
+
+    const createButton = Array.from(
+      container.querySelectorAll(".session-tab-action"),
+    ).find(
+      (button) => (button as HTMLElement).textContent === "+ tmux",
+    ) as HTMLElement;
+    createButton.click();
+
+    const nativeButton = Array.from(
+      container.querySelectorAll(".session-tab-action"),
+    ).find(
+      (button) => (button as HTMLElement).textContent === "native",
+    ) as HTMLElement;
+    nativeButton.click();
+
+    expect(onKillSession).toHaveBeenCalledWith("1");
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+    expect(onSwitchNativeShell).toHaveBeenCalledTimes(1);
   });
 });

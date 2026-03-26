@@ -41,6 +41,7 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
   private lastKnownRows: number = 0;
   private isStarting = false;
   private selectedTmuxSessionId?: string;
+  private forceNativeShellNextStart = false;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -251,22 +252,28 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
       const enableHttpApi = config.get<boolean>("enableHttpApi", true);
       const httpTimeout = config.get<number>("httpTimeout", 5000);
       const command = config.get<string>("command", "opencode -c");
+      const forceNativeShell = this.forceNativeShellNextStart;
       const selectedTmuxSessionId = this.selectedTmuxSessionId;
-      let tmuxSessionId =
-        selectedTmuxSessionId ??
-        this.resolveTmuxSessionIdForInstance(this.activeInstanceId);
+      let tmuxSessionId = forceNativeShell
+        ? undefined
+        : (selectedTmuxSessionId ??
+          this.resolveTmuxSessionIdForInstance(this.activeInstanceId));
 
       let port: number | undefined;
       const { workspacePath, isWorkspaceScoped } =
         this.resolveStartupWorkspacePath();
 
-      if (!selectedTmuxSessionId && isWorkspaceScoped) {
+      if (!forceNativeShell && !selectedTmuxSessionId && isWorkspaceScoped) {
         const ensuredSessionId =
           await this.ensureWorkspaceSession(workspacePath);
         if (ensuredSessionId) {
           tmuxSessionId = ensuredSessionId;
         }
-      } else if (!selectedTmuxSessionId && !tmuxSessionId) {
+      } else if (
+        !forceNativeShell &&
+        !selectedTmuxSessionId &&
+        !tmuxSessionId
+      ) {
         tmuxSessionId = await this.resolveFallbackTmuxSessionId();
       }
 
@@ -275,6 +282,7 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
         tmuxSessionId,
       );
       this.selectedTmuxSessionId = undefined;
+      this.forceNativeShellNextStart = false;
 
       if (enableHttpApi) {
         try {
@@ -611,7 +619,7 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
 
   private resolveInstanceIdFromSessionId(sessionId: string): InstanceId {
     if (!this.instanceStore) {
-      return sessionId;
+      return this.activeInstanceId;
     }
 
     if (this.instanceStore.get(sessionId)) {
@@ -641,10 +649,11 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
       }
     });
 
-    return workspaceMapped?.config.id ?? sessionId;
+    return workspaceMapped?.config.id ?? this.activeInstanceId;
   }
 
   public async switchToTmuxSession(sessionId: string): Promise<void> {
+    this.forceNativeShellNextStart = false;
     this.selectedTmuxSessionId = sessionId;
     await this.switchToInstance(
       this.resolveInstanceIdFromSessionId(sessionId),
@@ -652,6 +661,103 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
         forceRestart: true,
       },
     );
+  }
+
+  public async switchToNativeShell(): Promise<void> {
+    this.selectedTmuxSessionId = undefined;
+    this.forceNativeShellNextStart = true;
+
+    if (this.instanceStore) {
+      const existing = this.instanceStore.get(this.activeInstanceId);
+      if (existing?.runtime.tmuxSessionId) {
+        this.instanceStore.upsert({
+          ...existing,
+          runtime: {
+            ...existing.runtime,
+            tmuxSessionId: undefined,
+          },
+        });
+      }
+    }
+
+    await this.switchToInstance(this.activeInstanceId, { forceRestart: true });
+  }
+
+  public async createTmuxSession(): Promise<void> {
+    if (!this.tmuxSessionManager) {
+      return;
+    }
+
+    const { workspacePath } = this.resolveStartupWorkspacePath();
+
+    try {
+      const sessions = await this.tmuxSessionManager.discoverSessions();
+      const existingIds = new Set(sessions.map((session) => session.id));
+      const baseName = path.basename(workspacePath) || "opencode";
+
+      let candidate = baseName;
+      let suffix = 2;
+      while (existingIds.has(candidate)) {
+        candidate = `${baseName}-${suffix}`;
+        suffix += 1;
+      }
+
+      await this.tmuxSessionManager.createSession(candidate, workspacePath);
+      await this.switchToTmuxSession(candidate);
+      await this.emitTreeSnapshot();
+    } catch (error) {
+      this.logger.error(
+        `[OpenCodeTuiProvider] Failed to create tmux session: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      vscode.window.showErrorMessage("Failed to create tmux session");
+    }
+  }
+
+  public async killTmuxSession(sessionId: string): Promise<void> {
+    if (!this.tmuxSessionManager) {
+      return;
+    }
+
+    try {
+      const activeTmuxSessionId = this.resolveTmuxSessionIdForInstance(
+        this.activeInstanceId,
+      );
+      const shouldFallbackToNative =
+        this.selectedTmuxSessionId === sessionId ||
+        activeTmuxSessionId === sessionId;
+
+      if (this.selectedTmuxSessionId === sessionId) {
+        this.selectedTmuxSessionId = undefined;
+      }
+
+      await this.tmuxSessionManager.killSession(sessionId);
+
+      if (this.instanceStore) {
+        const records = this.instanceStore.getAll();
+        for (const record of records) {
+          if (record.runtime.tmuxSessionId === sessionId) {
+            this.instanceStore.upsert({
+              ...record,
+              runtime: {
+                ...record.runtime,
+                tmuxSessionId: undefined,
+              },
+            });
+          }
+        }
+      }
+
+      if (shouldFallbackToNative && this.isStarted) {
+        await this.switchToNativeShell();
+      }
+
+      await this.emitTreeSnapshot();
+    } catch (error) {
+      this.logger.error(
+        `[OpenCodeTuiProvider] Failed to kill tmux session: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      vscode.window.showErrorMessage("Failed to kill tmux session");
+    }
   }
 
   /**
@@ -823,10 +929,19 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
         break;
       case "switchSession":
         if (message.sessionId) {
-          void this.switchToInstance(
-            this.resolveInstanceIdFromSessionId(message.sessionId),
-          );
+          void this.switchToTmuxSession(message.sessionId);
         }
+        break;
+      case "killSession":
+        if (message.sessionId) {
+          void this.killTmuxSession(message.sessionId);
+        }
+        break;
+      case "createTmuxSession":
+        void this.createTmuxSession();
+        break;
+      case "switchNativeShell":
+        void this.switchToNativeShell();
         break;
     }
   }
@@ -1256,6 +1371,36 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
       padding: 6px 8px;
       min-width: min-content;
     }
+    .session-tab-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 0 6px 8px;
+      border-right: 1px solid #333;
+      margin-right: 6px;
+      position: sticky;
+      left: 0;
+      background: #1e1e1e;
+      z-index: 1;
+    }
+    .session-tab-action {
+      border: 1px solid #3a3a3a;
+      border-radius: 6px;
+      background: #252526;
+      color: #ccc;
+      padding: 4px 8px;
+      font-size: 12px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .session-tab-action:hover {
+      background-color: #2a2d2e;
+    }
+    .session-tab-item-wrapper {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
     .session-tab-item {
       border: 1px solid #3a3a3a;
       border-radius: 6px;
@@ -1274,6 +1419,21 @@ export class OpenCodeTuiProvider implements vscode.WebviewViewProvider {
       background-color: #04395e;
       border-color: #0e639c;
       color: #fff;
+    }
+    .session-tab-kill {
+      border: 1px solid #3a3a3a;
+      border-radius: 6px;
+      background: #2d2d2d;
+      color: #b8b8b8;
+      padding: 2px 6px;
+      font-size: 12px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .session-tab-kill:hover {
+      background: #5a1d1d;
+      color: #fff;
+      border-color: #8b2d2d;
     }
     .session-tab-empty-state {
       padding: 8px 12px;
