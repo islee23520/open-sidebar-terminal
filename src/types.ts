@@ -31,12 +31,55 @@ export type TmuxDashboardActionMessage =
   | { action: "refresh" }
   | { action: "create" }
   | { action: "switchNativeShell" }
-  | { action: "activate"; sessionId: string };
+  | { action: "activate"; sessionId: string }
+  | { action: "expandPanes"; sessionId: string }
+  | { action: "switchPane"; sessionId: string; paneId: string }
+  | {
+      action: "splitPane";
+      sessionId: string;
+      paneId?: string;
+      direction: "h" | "v";
+    }
+  | {
+      action: "splitPaneWithCommand";
+      sessionId: string;
+      paneId?: string;
+      direction: "h" | "v";
+      command: string;
+    }
+  | {
+      action: "sendTextToPane";
+      sessionId: string;
+      paneId: string;
+      text: string;
+    }
+  | { action: "killPane"; sessionId: string; paneId: string }
+  | {
+      action: "resizePane";
+      sessionId: string;
+      paneId: string;
+      direction: string;
+      amount: number;
+    }
+  | {
+      action: "swapPane";
+      sessionId: string;
+      sourcePaneId: string;
+      targetPaneId: string;
+    };
 
 export type TmuxDashboardSessionDto = {
   id: string;
   name: string;
   workspace: string;
+  isActive: boolean;
+  paneCount?: number;
+};
+
+export type TmuxDashboardPaneDto = {
+  paneId: string;
+  index: number;
+  title: string;
   isActive: boolean;
 };
 
@@ -44,6 +87,7 @@ export type TmuxDashboardHostMessage = {
   type: "updateTmuxSessions";
   sessions: TmuxDashboardSessionDto[];
   workspace: string;
+  panes?: Record<string, TmuxDashboardPaneDto[]>;
 };
 
 export const ALLOWED_IMAGE_TYPES = [
@@ -53,6 +97,20 @@ export const ALLOWED_IMAGE_TYPES = [
   "image/gif",
 ];
 export const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
+
+export interface TmuxSession {
+  id: string;
+  name: string;
+  workspace: string;
+  isActive: boolean;
+}
+
+export interface TreeSnapshot {
+  type: "treeSnapshot";
+  sessions: TmuxSession[];
+  activeSessionId: string | null;
+  emptyState?: "no-workspace" | "no-tmux" | "no-sessions";
+}
 
 export type HostMessage =
   | { type: "clipboardContent"; text: string }

@@ -16,10 +16,10 @@ import { PortManager } from "../services/PortManager";
 import { ConnectionResolver } from "../services/ConnectionResolver";
 import { TmuxSessionManager } from "../services/TmuxSessionManager";
 import { TmuxSessionsDashboardProvider } from "../providers/TmuxSessionsDashboardProvider";
-
-// Module-level state for batching file sends from context menu
-let fileSendAccumulator: vscode.Uri[] = [];
-let fileSendTimeout: NodeJS.Timeout | undefined;
+import {
+  registerCommands as registerAllCommands,
+  type RegisterCommandDependencies,
+} from "./commands";
 
 /**
  * Manages extension activation, service initialization, and cleanup.
@@ -58,6 +58,14 @@ export class ExtensionLifecycle {
       return ExtensionLifecycle.TERMINAL_ID;
     } catch {
       return ExtensionLifecycle.TERMINAL_ID;
+    }
+  }
+
+  private resolveActiveTmuxSessionId(): string | undefined {
+    try {
+      return this.instanceStore?.getActive()?.runtime.tmuxSessionId;
+    } catch {
+      return undefined;
     }
   }
 
@@ -183,385 +191,44 @@ export class ExtensionLifecycle {
     }
   }
 
+  private getCommandDependencies(): RegisterCommandDependencies {
+    const self = this;
+    return {
+      get provider() {
+        return self.tuiProvider;
+      },
+      get tmuxManager() {
+        return self.tmuxSessionManager;
+      },
+      get terminalManager() {
+        return self.terminalManager;
+      },
+      get contextSharingService() {
+        return self.contextSharingService;
+      },
+      get contextManager() {
+        return self.contextManager;
+      },
+      get instanceStore() {
+        return self.instanceStore;
+      },
+      get instanceController() {
+        return self.instanceController;
+      },
+      get instanceQuickPick() {
+        return self.instanceQuickPick;
+      },
+      get outputChannel() {
+        return self.outputChannelService;
+      },
+      getActiveTerminalId: () => this.getActiveTerminalId(),
+      sendTerminalCwd: () => this.sendTerminalCwd(),
+      resolveActiveTmuxSessionId: () => this.resolveActiveTmuxSessionId(),
+    };
+  }
+
   private registerCommands(context: vscode.ExtensionContext): void {
-    // Start OpenCode command
-    const startCommand = vscode.commands.registerCommand(
-      "opencodeTui.start",
-      () => {
-        this.tuiProvider?.startOpenCode();
-      },
-    );
-
-    // Send selected text to terminal
-    const sendToTerminalCommand = vscode.commands.registerCommand(
-      "opencodeTui.sendToTerminal",
-      () => {
-        const editor = vscode.window.activeTextEditor;
-        if (editor && !editor.selection.isEmpty) {
-          const selectedText = editor.document.getText(editor.selection);
-          this.terminalManager?.writeToTerminal(
-            this.getActiveTerminalId(),
-            selectedText + "\n",
-          );
-
-          // Auto-focus sidebar if enabled
-          const config = vscode.workspace.getConfiguration("opencodeTui");
-          if (config.get<boolean>("autoFocusOnSend", true)) {
-            vscode.commands.executeCommand("opencodeTui.focus");
-            // Also focus the terminal inside the webview
-            setTimeout(() => {
-              this.tuiProvider?.focus();
-            }, 100);
-          }
-        }
-      },
-    );
-
-    // Send current file reference (@filename) or terminal CWD
-    const sendAtMentionCommand = vscode.commands.registerCommand(
-      "opencodeTui.sendAtMention",
-      () => {
-        const editor = vscode.window.activeTextEditor;
-        if (editor && this.contextSharingService) {
-          const fileRef =
-            this.contextSharingService.formatFileRefWithLineNumbers(editor);
-          this.terminalManager?.writeToTerminal(
-            this.getActiveTerminalId(),
-            fileRef + " ",
-          );
-
-          // Auto-focus sidebar if enabled
-          const config = vscode.workspace.getConfiguration("opencodeTui");
-          if (config.get<boolean>("autoFocusOnSend", true)) {
-            vscode.commands.executeCommand("opencodeTui.focus");
-            // Also focus the terminal inside the webview
-            setTimeout(() => {
-              this.tuiProvider?.focus();
-            }, 100);
-          }
-        } else {
-          this.sendTerminalCwd();
-        }
-      },
-    );
-
-    // Send all open file references
-    const sendAllOpenFilesCommand = vscode.commands.registerCommand(
-      "opencodeTui.sendAllOpenFiles",
-      () => {
-        const fileRefs: string[] = [];
-
-        // Get all opened tabs across all editor groups (not just visible ones)
-        for (const group of vscode.window.tabGroups.all) {
-          for (const tab of group.tabs) {
-            if (tab.input instanceof vscode.TabInputText) {
-              const uri = tab.input.uri;
-              // Skip untitled/unsaved documents
-              if (
-                !uri.scheme.startsWith("untitled") &&
-                this.contextSharingService
-              ) {
-                fileRefs.push(this.contextSharingService.formatFileRef(uri));
-              }
-            }
-          }
-        }
-
-        const openFiles = fileRefs.join(" ");
-
-        if (openFiles) {
-          this.terminalManager?.writeToTerminal(
-            this.getActiveTerminalId(),
-            openFiles + " ",
-          );
-
-          // Auto-focus sidebar if enabled
-          const config = vscode.workspace.getConfiguration("opencodeTui");
-          if (config.get<boolean>("autoFocusOnSend", true)) {
-            vscode.commands.executeCommand("opencodeTui.focus");
-            // Also focus the terminal inside the webview
-            setTimeout(() => {
-              this.tuiProvider?.focus();
-            }, 100);
-          }
-        }
-      },
-    );
-
-    // Send file/folder from explorer context menu
-    const sendFileToTerminalCommand = vscode.commands.registerCommand(
-      "opencodeTui.sendFileToTerminal",
-      (...args: unknown[]) => {
-        if (!this.contextSharingService) {
-          return;
-        }
-
-        // VS Code explorer context menu passes (clickedUri, allSelectedUris)
-        // When multiple files are selected, the last argument is a Uri[]
-        let uris: vscode.Uri[];
-        if (args.length > 0 && Array.isArray(args[args.length - 1])) {
-          uris = args[args.length - 1] as vscode.Uri[];
-        } else if (args.length > 0 && args[0] instanceof vscode.Uri) {
-          uris = [args[0]];
-        } else {
-          return;
-        }
-        fileSendAccumulator.push(...uris);
-
-        if (fileSendTimeout) {
-          clearTimeout(fileSendTimeout);
-        }
-
-        fileSendTimeout = setTimeout(() => {
-          if (fileSendAccumulator.length === 0) {
-            return;
-          }
-
-          const uniqueUris = [
-            ...new Map(
-              fileSendAccumulator.map((u: vscode.Uri) => [u.fsPath, u]),
-            ).values(),
-          ];
-
-          const fileRefs = uniqueUris.map((u: vscode.Uri) =>
-            this.contextSharingService!.formatFileRef(u),
-          );
-          const allRefs = fileRefs.join(" ");
-
-          this.terminalManager?.writeToTerminal(
-            this.getActiveTerminalId(),
-            allRefs + " ",
-          );
-
-          const config = vscode.workspace.getConfiguration("opencodeTui");
-          if (config.get<boolean>("autoFocusOnSend", true)) {
-            vscode.commands.executeCommand("opencodeTui.focus");
-            setTimeout(() => {
-              this.tuiProvider?.focus();
-            }, 100);
-          }
-
-          fileSendAccumulator = [];
-        }, 100);
-      },
-    );
-
-    // Restart OpenCode command
-    const restartCommand = vscode.commands.registerCommand(
-      "opencodeTui.restart",
-      () => {
-        this.tuiProvider?.restart();
-        vscode.window.showInformationMessage("OpenCode restarted");
-      },
-    );
-
-    const pasteCommand = vscode.commands.registerCommand(
-      "opencodeTui.paste",
-      async () => {
-        try {
-          const text = await vscode.env.clipboard.readText();
-          if (text && this.tuiProvider) {
-            this.tuiProvider.pasteText(text);
-          }
-        } catch (error) {
-          this.outputChannelService?.error(
-            `[OpenCodeTui] Failed to paste: ${error instanceof Error ? error.message : String(error)}`,
-          );
-          vscode.window.showErrorMessage("Failed to paste from clipboard");
-        }
-      },
-    );
-
-    // Open in new window
-    const openInNewWindowCommand = vscode.commands.registerCommand(
-      "opencode.openInNewWindow",
-      async () => {
-        if (!this.instanceStore) {
-          vscode.window.showErrorMessage("Instance store is not initialized");
-          return;
-        }
-
-        try {
-          const active = this.instanceStore.getActive();
-          const newId = `${Date.now()}`;
-          const newRecord = {
-            config: {
-              id: newId,
-              workspaceUri: active.config.workspaceUri,
-              label: `${active.config.label || "OpenCode"} (New Window)`,
-            },
-            runtime: {},
-            state: "disconnected" as const,
-          };
-
-          this.instanceStore.upsert(newRecord);
-
-          // Actually open the workspace in a new VS Code window
-          if (newRecord.config.workspaceUri) {
-            vscode.commands.executeCommand(
-              "vscode.openFolder",
-              vscode.Uri.parse(newRecord.config.workspaceUri),
-              true,
-            );
-          }
-          vscode.window.showInformationMessage(
-            `Opened in new window: ${newRecord.config.label}`,
-          );
-        } catch (error) {
-          this.outputChannelService?.error(
-            `Failed to open in new window: ${error instanceof Error ? error.message : String(error)}`,
-          );
-          vscode.window.showErrorMessage(
-            `Failed to open in new window: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-      },
-    );
-
-    // Spawn for workspace
-    const spawnForWorkspaceCommand = vscode.commands.registerCommand(
-      "opencode.spawnForWorkspace",
-      async (uri?: vscode.Uri) => {
-        if (!this.instanceStore) {
-          vscode.window.showErrorMessage("Instance store is not initialized");
-          return;
-        }
-
-        try {
-          const workspaceUri =
-            uri?.toString() ||
-            vscode.workspace.workspaceFolders?.[0]?.uri.toString();
-          if (!workspaceUri) {
-            vscode.window.showWarningMessage("No workspace folder available");
-            return;
-          }
-
-          const existingWorkspaceRecord = this.instanceStore
-            .getAll()
-            .find((record) => record.config.workspaceUri === workspaceUri);
-
-          const reusableStates = new Set<string>([
-            "connected",
-            "connecting",
-            "spawning",
-            "resolving",
-          ]);
-
-          if (
-            existingWorkspaceRecord &&
-            reusableStates.has(existingWorkspaceRecord.state)
-          ) {
-            this.instanceStore.setActive(existingWorkspaceRecord.config.id);
-            await vscode.commands.executeCommand("opencodeTui.focus");
-            vscode.window.showInformationMessage(
-              `Focused existing OpenCode for workspace: ${existingWorkspaceRecord.config.label || existingWorkspaceRecord.config.id}`,
-            );
-            return;
-          }
-
-          if (existingWorkspaceRecord) {
-            this.instanceStore.setActive(existingWorkspaceRecord.config.id);
-            await this.instanceController?.spawn(
-              existingWorkspaceRecord.config.id,
-            );
-            vscode.window.showInformationMessage(
-              `Spawned OpenCode for workspace: ${existingWorkspaceRecord.config.label || existingWorkspaceRecord.config.id}`,
-            );
-            return;
-          }
-
-          const config = vscode.workspace.getConfiguration("opencodeTui");
-          const configuredCommand = config.get<string>(
-            "command",
-            "opencode -c",
-          );
-
-          const newId = `${Date.now()}`;
-          const newRecord = {
-            config: {
-              id: newId,
-              workspaceUri,
-              label: `OpenCode (${vscode.workspace.name || "Workspace"})`,
-              command: configuredCommand,
-            },
-            runtime: {},
-            state: "disconnected" as const,
-          };
-
-          this.instanceStore.upsert(newRecord);
-
-          // Actually spawn the OpenCode process for this instance
-          await this.instanceController?.spawn(newId);
-          vscode.window.showInformationMessage(
-            `Spawned OpenCode for workspace: ${newRecord.config.label}`,
-          );
-        } catch (error) {
-          this.outputChannelService?.error(
-            `Failed to spawn for workspace: ${error instanceof Error ? error.message : String(error)}`,
-          );
-          vscode.window.showErrorMessage(
-            `Failed to spawn for workspace: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-      },
-    );
-
-    const selectInstanceCommand = vscode.commands.registerCommand(
-      "opencodeTui.selectInstance",
-      () => {
-        this.instanceQuickPick?.show();
-      },
-    );
-
-    const switchTmuxSessionCommand = vscode.commands.registerCommand(
-      "opencodeTui.switchTmuxSession",
-      async (sessionId?: string) => {
-        if (!sessionId || !this.tuiProvider) {
-          return;
-        }
-
-        await this.tuiProvider.switchToTmuxSession(sessionId);
-        await vscode.commands.executeCommand("opencodeTui.focus");
-      },
-    );
-
-    const createTmuxSessionCommand = vscode.commands.registerCommand(
-      "opencodeTui.createTmuxSession",
-      async () => {
-        if (!this.tuiProvider) {
-          return;
-        }
-
-        await this.tuiProvider.createTmuxSession();
-      },
-    );
-
-    const switchNativeShellCommand = vscode.commands.registerCommand(
-      "opencodeTui.switchNativeShell",
-      async () => {
-        if (!this.tuiProvider) {
-          return;
-        }
-
-        await this.tuiProvider.switchToNativeShell();
-      },
-    );
-
-    context.subscriptions.push(
-      startCommand,
-      sendToTerminalCommand,
-      sendAtMentionCommand,
-      sendAllOpenFilesCommand,
-      sendFileToTerminalCommand,
-      restartCommand,
-      pasteCommand,
-      openInNewWindowCommand,
-      spawnForWorkspaceCommand,
-      selectInstanceCommand,
-      switchTmuxSessionCommand,
-      createTmuxSessionCommand,
-      switchNativeShellCommand,
-    );
+    registerAllCommands(context, this.getCommandDependencies());
   }
 
   private async sendPromptToOpenCode(prompt: string): Promise<void> {

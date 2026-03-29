@@ -12,6 +12,9 @@ vi.mock("vscode", async () => {
   return actual;
 });
 
+/**
+ * Tests for the TmuxSessionsDashboardProvider class.
+ */
 describe("TmuxSessionsDashboardProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -24,15 +27,25 @@ describe("TmuxSessionsDashboardProvider", () => {
     ];
   });
 
+  /**
+   * Flushes the promise queue to ensure all async operations are completed.
+   */
   async function flushPromises(): Promise<void> {
     await Promise.resolve();
     await Promise.resolve();
   }
 
-  function createProvider(discoverSessions = vi.fn().mockResolvedValue([])) {
+  /**
+   * Creates an instance of TmuxSessionsDashboardProvider with mocked dependencies.
+   */
+  function createProvider(
+    discoverSessions = vi.fn().mockResolvedValue([]),
+    listPanes = vi.fn().mockResolvedValue([]),
+  ) {
     const context = new vscode.ExtensionContext();
     const tmuxSessionManager = {
       discoverSessions,
+      listPanes,
     } as unknown as TmuxSessionManager;
 
     return {
@@ -44,6 +57,9 @@ describe("TmuxSessionsDashboardProvider", () => {
     };
   }
 
+  /**
+   * Resolves the webview view for the provider and returns the view and message handler.
+   */
   function resolveProvider(provider: TmuxSessionsDashboardProvider) {
     const view = vscode.WebviewView();
     provider.resolveWebviewView(view as never, {} as never, {} as never);
@@ -53,6 +69,9 @@ describe("TmuxSessionsDashboardProvider", () => {
     return { view, messageHandler };
   }
 
+  /**
+   * Verifies that only sessions matching the current workspace are posted to the webview.
+   */
   it("posts workspace-filtered tmux sessions to the dashboard webview", async () => {
     const { provider } = createProvider(
       vi.fn().mockResolvedValue([
@@ -83,11 +102,18 @@ describe("TmuxSessionsDashboardProvider", () => {
           name: "repo-a",
           workspace: "repo-a",
           isActive: true,
+          paneCount: 0,
         },
       ],
+      panes: {
+        "repo-a": [],
+      },
     });
   });
 
+  /**
+   * Verifies that webview actions trigger the correct VS Code commands and refresh the session list.
+   */
   it("routes activate/create/native actions through commands and refreshes", async () => {
     const { provider, discoverSessions } = createProvider(
       vi.fn().mockResolvedValue([
@@ -128,11 +154,18 @@ describe("TmuxSessionsDashboardProvider", () => {
           name: "repo-a",
           workspace: "repo-a",
           isActive: false,
+          paneCount: 0,
         },
       ],
+      panes: {
+        "repo-a": [],
+      },
     });
   });
 
+  /**
+   * Verifies that the refresh action triggers a session discovery.
+   */
   it("refreshes sessions when the refresh action is received", async () => {
     const { provider, discoverSessions } = createProvider();
     const { view, messageHandler } = resolveProvider(provider);

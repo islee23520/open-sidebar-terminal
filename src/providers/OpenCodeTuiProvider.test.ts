@@ -7,7 +7,6 @@ import { InstanceStore } from "../services/InstanceStore";
 import { OutputChannelService } from "../services/OutputChannelService";
 import { TmuxSessionManager } from "../services/TmuxSessionManager";
 import { TerminalManager } from "../terminals/TerminalManager";
-import { TreeSnapshot } from "../webview/sidebar/types";
 import { OpenCodeTuiProvider } from "./OpenCodeTuiProvider";
 
 const vscode = await vi.importActual<typeof vscodeTypes>(
@@ -152,143 +151,6 @@ describe("OpenCodeTuiProvider", () => {
     expect(nativeSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("emits a populated treeSnapshot to the webview", async () => {
-    mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
-    const snapshot: TreeSnapshot = {
-      type: "treeSnapshot",
-      sessions: [
-        {
-          id: "workspace-a",
-          name: "workspace-a",
-          workspace: "repo-a",
-          isActive: true,
-        },
-      ],
-      activeSessionId: "workspace-a",
-    };
-    const createTreeSnapshot = vi.fn().mockResolvedValue(snapshot);
-    const tmuxSessionManager = {
-      createTreeSnapshot,
-    } as unknown as TmuxSessionManager;
-
-    provider = createProvider({ tmuxSessionManager });
-    const { view } = resolveProvider(provider);
-    await flushAsyncStartup();
-
-    expect(createTreeSnapshot).toHaveBeenCalledWith("opencode-main");
-    expect(view.webview.postMessage).toHaveBeenCalledWith(snapshot);
-  });
-
-  it("emits treeSnapshot with active tmux session id when runtime has mapping", async () => {
-    mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
-    const instanceStore = new InstanceStore();
-    instanceStore.upsert({
-      config: {
-        id: "workspace-d-instance",
-        workspaceUri: "file:///workspaces/workspace-d",
-      },
-      runtime: { terminalKey: "workspace-d-instance", tmuxSessionId: "tmux-d" },
-      state: "connected",
-    });
-    const createTreeSnapshot = vi.fn().mockResolvedValue({
-      type: "treeSnapshot",
-      sessions: [],
-      activeSessionId: null,
-      emptyState: "no-sessions",
-    } satisfies TreeSnapshot);
-    const tmuxSessionManager = {
-      createTreeSnapshot,
-    } as unknown as TmuxSessionManager;
-
-    provider = createProvider({ instanceStore, tmuxSessionManager });
-    resolveProvider(provider);
-    await flushAsyncStartup();
-
-    expect(createTreeSnapshot).toHaveBeenCalledWith("tmux-d");
-  });
-
-  it("emits explicit empty state snapshots from tmux manager", async () => {
-    mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
-    const snapshot: TreeSnapshot = {
-      type: "treeSnapshot",
-      sessions: [],
-      activeSessionId: null,
-      emptyState: "no-tmux",
-    };
-    const createTreeSnapshot = vi.fn().mockResolvedValue(snapshot);
-    const tmuxSessionManager = {
-      createTreeSnapshot,
-    } as unknown as TmuxSessionManager;
-
-    provider = createProvider({ tmuxSessionManager });
-    const { view } = resolveProvider(provider);
-    await flushAsyncStartup();
-
-    expect(view.webview.postMessage).toHaveBeenCalledWith(snapshot);
-  });
-
-  it("emits a no-workspace empty state when no workspace context exists", async () => {
-    mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
-    vscode.workspace.workspaceFolders = undefined;
-    const createTreeSnapshot = vi.fn().mockResolvedValue({
-      type: "treeSnapshot",
-      sessions: [],
-      activeSessionId: null,
-      emptyState: "no-sessions",
-    } satisfies TreeSnapshot);
-    const tmuxSessionManager = {
-      createTreeSnapshot,
-    } as unknown as TmuxSessionManager;
-
-    provider = createProvider({ tmuxSessionManager });
-    const { view } = resolveProvider(provider);
-    await flushAsyncStartup();
-
-    expect(view.webview.postMessage).toHaveBeenCalledWith({
-      type: "treeSnapshot",
-      sessions: [],
-      activeSessionId: null,
-      emptyState: "no-workspace",
-    });
-  });
-
-  it("filters treeSnapshot sessions to current workspace only", async () => {
-    mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
-    vscode.workspace.workspaceFolders = [
-      {
-        uri: {
-          fsPath: "/workspaces/repo-a",
-          toString: () => "file:///workspaces/repo-a",
-        },
-      },
-    ] as any;
-
-    const createTreeSnapshot = vi.fn().mockResolvedValue({
-      type: "treeSnapshot",
-      sessions: [
-        { id: "repo-a", name: "repo-a", workspace: "repo-a", isActive: true },
-        { id: "repo-b", name: "repo-b", workspace: "repo-b", isActive: false },
-      ],
-      activeSessionId: "repo-a",
-    } satisfies TreeSnapshot);
-    const tmuxSessionManager = {
-      createTreeSnapshot,
-    } as unknown as TmuxSessionManager;
-
-    provider = createProvider({ tmuxSessionManager });
-    const { view } = resolveProvider(provider);
-    await flushAsyncStartup();
-
-    expect(view.webview.postMessage).toHaveBeenCalledWith({
-      type: "treeSnapshot",
-      sessions: [
-        { id: "repo-a", name: "repo-a", workspace: "repo-a", isActive: true },
-      ],
-      activeSessionId: "repo-a",
-      emptyState: undefined,
-    });
-  });
-
   it("starts the default terminal path without sidebar tree interaction", async () => {
     mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
     provider = createProvider();
@@ -344,7 +206,7 @@ describe("OpenCodeTuiProvider", () => {
     expect(ensureSession).toHaveBeenCalledWith("repo-a", "/workspaces/repo-a");
     expect(createTerminalSpy).toHaveBeenCalledWith(
       "workspace-a",
-      "tmux attach-session -t repo-a-tmux",
+      "tmux attach-session -t repo-a-tmux \\; set-option -u status off",
       {},
       undefined,
       100,
@@ -393,7 +255,7 @@ describe("OpenCodeTuiProvider", () => {
     expect(ensureSession).toHaveBeenCalledWith("repo-b", "/workspaces/repo-b");
     expect(createTerminalSpy).toHaveBeenCalledWith(
       "workspace-b",
-      "tmux attach-session -t repo-b-tmux",
+      "tmux attach-session -t repo-b-tmux \\; set-option -u status off",
       {},
       undefined,
       120,
@@ -478,7 +340,7 @@ describe("OpenCodeTuiProvider", () => {
     expect(discoverSessions).toHaveBeenCalledTimes(1);
     expect(createTerminalSpy).toHaveBeenCalledWith(
       "opencode-main",
-      "tmux attach-session -t shared-session",
+      "tmux attach-session -t shared-session \\; set-option -u status off",
       {},
       undefined,
       96,
@@ -524,7 +386,9 @@ describe("OpenCodeTuiProvider", () => {
     const lastCall =
       createTerminalSpy.mock.calls[createTerminalSpy.mock.calls.length - 1];
     expect(lastCall).toBeDefined();
-    expect(lastCall?.[1]).toBe("tmux attach-session -t target-z");
+    expect(lastCall?.[1]).toBe(
+      "tmux attach-session -t target-z \\; set-option -u status off",
+    );
     expect(lastCall?.[6]).toBe("workspace-z-instance");
   });
 
@@ -590,34 +454,9 @@ describe("OpenCodeTuiProvider", () => {
     );
     const lastCall =
       createTerminalSpy.mock.calls[createTerminalSpy.mock.calls.length - 1];
-    expect(lastCall?.[1]).toBe("tmux attach-session -t repo-a-3");
-  });
-
-  it("ignores treeSnapshot payloads in the provider message handler", () => {
-    mockConfiguration();
-    provider = createProvider();
-    const { messageHandler } = resolveProvider(provider);
-    const switchSpy = vi
-      .spyOn(provider, "switchToInstance")
-      .mockResolvedValue(undefined);
-    const startSpy = vi.spyOn(provider, "startOpenCode").mockResolvedValue();
-    const snapshot: TreeSnapshot = {
-      type: "treeSnapshot",
-      sessions: [
-        {
-          id: "workspace-a",
-          name: "workspace-a",
-          workspace: "repo-a",
-          isActive: true,
-        },
-      ],
-      activeSessionId: "workspace-a",
-    };
-
-    messageHandler(snapshot as any);
-
-    expect(switchSpy).not.toHaveBeenCalled();
-    expect(startSpy).not.toHaveBeenCalled();
+    expect(lastCall?.[1]).toBe(
+      "tmux attach-session -t repo-a-3 \\; set-option -u status off",
+    );
   });
 
   it("switches active instances without respawning when a terminal already exists", async () => {

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { basename, resolve } from "node:path";
-import { TmuxSession, TreeSnapshot } from "../webview/sidebar/types";
+import { TmuxSession, TreeSnapshot } from "../types";
 
 const TMUX_LIST_FORMAT =
   "#{session_name}\t#{session_attached}\t#{session_path}";
@@ -204,6 +204,94 @@ export class TmuxSessionManager {
         throw new TmuxUnavailableError();
       }
 
+      throw error;
+    }
+  }
+
+  public async splitPane(
+    targetPaneId: string,
+    direction: "h" | "v",
+    options?: { command?: string; workingDirectory?: string },
+  ): Promise<string> {
+    try {
+      const args = [
+        "split-window",
+        "-t",
+        targetPaneId,
+        `-${direction}`,
+        "-P",
+        "-F",
+        "#{pane_id}",
+      ];
+      if (options?.workingDirectory) {
+        args.push("-c", options.workingDirectory);
+      }
+      if (options?.command) {
+        args.push(options.command);
+      }
+      const stdout = await this.runTmux(args);
+      return stdout.trim();
+    } catch (error) {
+      if (this.isTmuxUnavailable(error)) {
+        throw new TmuxUnavailableError();
+      }
+      throw error;
+    }
+  }
+
+  public async killPane(paneId: string): Promise<void> {
+    try {
+      await this.runTmux(["kill-pane", "-t", paneId]);
+    } catch (error) {
+      if (this.isTmuxUnavailable(error)) {
+        throw new TmuxUnavailableError();
+      }
+      throw error;
+    }
+  }
+
+  public async selectPane(paneId: string): Promise<void> {
+    try {
+      await this.runTmux(["select-pane", "-t", paneId]);
+    } catch (error) {
+      if (this.isTmuxUnavailable(error)) {
+        throw new TmuxUnavailableError();
+      }
+      throw error;
+    }
+  }
+
+  public async resizePane(
+    paneId: string,
+    direction: "L" | "R" | "U" | "D",
+    adjustment: number,
+  ): Promise<void> {
+    try {
+      await this.runTmux([
+        "resize-pane",
+        "-t",
+        paneId,
+        `-${direction}`,
+        String(adjustment),
+      ]);
+    } catch (error) {
+      if (this.isTmuxUnavailable(error)) {
+        throw new TmuxUnavailableError();
+      }
+      throw error;
+    }
+  }
+
+  public async swapPanes(
+    sourcePaneId: string,
+    targetPaneId: string,
+  ): Promise<void> {
+    try {
+      await this.runTmux(["swap-pane", "-s", sourcePaneId, "-t", targetPaneId]);
+    } catch (error) {
+      if (this.isTmuxUnavailable(error)) {
+        throw new TmuxUnavailableError();
+      }
       throw error;
     }
   }

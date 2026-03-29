@@ -80,41 +80,4 @@ const webviewConfig = {
   devtool: "nosources-source-map",
 };
 
-const dashboardConfig = {
-  target: "web",
-  mode: "none",
-  entry: "./src/webview/dashboard.ts",
-  output: {
-    path: path.resolve(__dirname, "dist"),
-    filename: "dashboard.js",
-  },
-  resolve: {
-    extensions: [".ts", ".js"],
-    fallback: {
-      path: false,
-      fs: false,
-    },
-  },
-  module: {
-    rules: [
-      {
-        test: /\.ts$/,
-        exclude: [
-          /node_modules/,
-          /\.test\.ts$/,
-          /src\/test\//,
-          /src\/\__tests__\//,
-        ],
-        use: [
-          {
-            loader: "ts-loader",
-          },
-        ],
-      },
-    ],
-  },
-  devtool: "nosources-source-map",
-};
-
-
-module.exports = [extensionConfig, webviewConfig, dashboardConfig];
+module.exports = [extensionConfig, webviewConfig];

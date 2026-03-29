@@ -49,10 +49,10 @@
         },
         {
           "id": "opencodeTui.tmuxSessions",
-          "name": "Tmux Sessions",
+          "name": "Terminal Managers",
           "type": "webview",
           "icon": "$(server)",
-          "contextualTitle": "Tmux Sessions"
+          "contextualTitle": "Terminal Managers"
         }
       ]
     },
@@ -111,6 +111,54 @@
         "title": "Select OpenCode Tmux Session",
         "category": "OpenCode TUI",
         "icon": "$(server-environment)"
+      },
+      {
+        "command": "opencodeTui.tmuxSwitchPane",
+        "title": "Switch to Pane",
+        "category": "OpenCode TUI",
+        "icon": "$(check)"
+      },
+      {
+        "command": "opencodeTui.tmuxSplitPaneH",
+        "title": "Split Pane Horizontal",
+        "category": "OpenCode TUI",
+        "icon": "$(split-horizontal)"
+      },
+      {
+        "command": "opencodeTui.tmuxSplitPaneV",
+        "title": "Split Pane Vertical",
+        "category": "OpenCode TUI",
+        "icon": "$(split-vertical)"
+      },
+      {
+        "command": "opencodeTui.tmuxSplitPaneWithCommand",
+        "title": "Split Pane with Command",
+        "category": "OpenCode TUI",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "opencodeTui.tmuxSendTextToPane",
+        "title": "Send Text to Pane",
+        "category": "OpenCode TUI",
+        "icon": "$(file-symlink-file)"
+      },
+      {
+        "command": "opencodeTui.tmuxResizePane",
+        "title": "Resize Pane",
+        "category": "OpenCode TUI",
+        "icon": "$(move)"
+      },
+      {
+        "command": "opencodeTui.tmuxSwapPane",
+        "title": "Swap Panes",
+        "category": "OpenCode TUI",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "opencodeTui.tmuxKillPane",
+        "title": "Kill Pane",
+        "category": "OpenCode TUI",
+        "icon": "$(trash)"
       }
     ],
     "menus": {
@@ -119,6 +167,46 @@
           "command": "opencodeTui.restart",
           "when": "view == opencodeTui",
           "group": "navigation@1"
+        },
+        {
+          "command": "opencodeTui.tmuxSwitchPane",
+          "when": "view == opencodeTui.tmuxSessions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "opencodeTui.tmuxSplitPaneH",
+          "when": "view == opencodeTui.tmuxSessions",
+          "group": "navigation@2"
+        },
+        {
+          "command": "opencodeTui.tmuxSplitPaneV",
+          "when": "view == opencodeTui.tmuxSessions",
+          "group": "navigation@3"
+        },
+        {
+          "command": "opencodeTui.tmuxSplitPaneWithCommand",
+          "when": "view == opencodeTui.tmuxSessions",
+          "group": "navigation@4"
+        },
+        {
+          "command": "opencodeTui.tmuxSendTextToPane",
+          "when": "view == opencodeTui.tmuxSessions",
+          "group": "navigation@5"
+        },
+        {
+          "command": "opencodeTui.tmuxResizePane",
+          "when": "view == opencodeTui.tmuxSessions",
+          "group": "navigation@6"
+        },
+        {
+          "command": "opencodeTui.tmuxSwapPane",
+          "when": "view == opencodeTui.tmuxSessions",
+          "group": "navigation@7"
+        },
+        {
+          "command": "opencodeTui.tmuxKillPane",
+          "when": "view == opencodeTui.tmuxSessions",
+          "group": "navigation@8"
         }
       ],
       "explorer/context": [

@@ -240,6 +240,152 @@ describe("TmuxSessionManager", () => {
     ]);
   });
 
+  describe("pane management", () => {
+    it("splits pane horizontally and returns new pane ID", async () => {
+      mockExecSequence([{ stdout: "%5" }]);
+      const result = await manager.splitPane("%0", "h");
+      expect(result).toBe("%5");
+      expect(vi.mocked(execFile).mock.calls[0]?.[1]).toEqual([
+        "split-window",
+        "-t",
+        "%0",
+        "-h",
+        "-P",
+        "-F",
+        "#{pane_id}",
+      ]);
+    });
+
+    it("splits pane vertically with command", async () => {
+      mockExecSequence([{ stdout: "%6" }]);
+      const result = await manager.splitPane("%0", "v", { command: "htop" });
+      expect(result).toBe("%6");
+      expect(vi.mocked(execFile).mock.calls[0]?.[1]).toEqual([
+        "split-window",
+        "-t",
+        "%0",
+        "-v",
+        "-P",
+        "-F",
+        "#{pane_id}",
+        "htop",
+      ]);
+    });
+
+    it("splits pane with working directory", async () => {
+      mockExecSequence([{ stdout: "%7" }]);
+      const result = await manager.splitPane("%0", "h", {
+        workingDirectory: "/some/path",
+      });
+      expect(result).toBe("%7");
+      expect(vi.mocked(execFile).mock.calls[0]?.[1]).toEqual([
+        "split-window",
+        "-t",
+        "%0",
+        "-h",
+        "-P",
+        "-F",
+        "#{pane_id}",
+        "-c",
+        "/some/path",
+      ]);
+    });
+
+    it("kills a pane", async () => {
+      mockExecSequence([{ stdout: "" }]);
+      await manager.killPane("%0");
+      expect(vi.mocked(execFile).mock.calls[0]?.[1]).toEqual([
+        "kill-pane",
+        "-t",
+        "%0",
+      ]);
+    });
+
+    it("selects a pane", async () => {
+      mockExecSequence([{ stdout: "" }]);
+      await manager.selectPane("%0");
+      expect(vi.mocked(execFile).mock.calls[0]?.[1]).toEqual([
+        "select-pane",
+        "-t",
+        "%0",
+      ]);
+    });
+
+    it("resizes a pane", async () => {
+      mockExecSequence([{ stdout: "" }]);
+      await manager.resizePane("%0", "L", 5);
+      expect(vi.mocked(execFile).mock.calls[0]?.[1]).toEqual([
+        "resize-pane",
+        "-t",
+        "%0",
+        "-L",
+        "5",
+      ]);
+    });
+
+    it("swaps two panes", async () => {
+      mockExecSequence([{ stdout: "" }]);
+      await manager.swapPanes("%0", "%1");
+      expect(vi.mocked(execFile).mock.calls[0]?.[1]).toEqual([
+        "swap-pane",
+        "-s",
+        "%0",
+        "-t",
+        "%1",
+      ]);
+    });
+
+    it("throws TmuxUnavailableError for splitPane when tmux missing", async () => {
+      const err = Object.assign(new Error("spawn tmux ENOENT"), {
+        code: "ENOENT",
+      });
+      mockExecSequence([{ error: err }]);
+      await expect(manager.splitPane("%0", "h")).rejects.toBeInstanceOf(
+        TmuxUnavailableError,
+      );
+    });
+
+    it("throws TmuxUnavailableError for killPane when tmux missing", async () => {
+      const err = Object.assign(new Error("spawn tmux ENOENT"), {
+        code: "ENOENT",
+      });
+      mockExecSequence([{ error: err }]);
+      await expect(manager.killPane("%0")).rejects.toBeInstanceOf(
+        TmuxUnavailableError,
+      );
+    });
+
+    it("throws TmuxUnavailableError for selectPane when tmux missing", async () => {
+      const err = Object.assign(new Error("spawn tmux ENOENT"), {
+        code: "ENOENT",
+      });
+      mockExecSequence([{ error: err }]);
+      await expect(manager.selectPane("%0")).rejects.toBeInstanceOf(
+        TmuxUnavailableError,
+      );
+    });
+
+    it("throws TmuxUnavailableError for resizePane when tmux missing", async () => {
+      const err = Object.assign(new Error("spawn tmux ENOENT"), {
+        code: "ENOENT",
+      });
+      mockExecSequence([{ error: err }]);
+      await expect(manager.resizePane("%0", "L", 5)).rejects.toBeInstanceOf(
+        TmuxUnavailableError,
+      );
+    });
+
+    it("throws TmuxUnavailableError for swapPanes when tmux missing", async () => {
+      const err = Object.assign(new Error("spawn tmux ENOENT"), {
+        code: "ENOENT",
+      });
+      mockExecSequence([{ error: err }]);
+      await expect(manager.swapPanes("%0", "%1")).rejects.toBeInstanceOf(
+        TmuxUnavailableError,
+      );
+    });
+  });
+
   it("surfaces a dedicated error when tmux is missing", async () => {
     const missingTmuxError = Object.assign(new Error("spawn tmux ENOENT"), {
       code: "ENOENT",

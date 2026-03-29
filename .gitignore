@@ -16,9 +16,6 @@ build/
 .claude/
 .omc/
 
-# ai
-AGENTS.md
-
 # test coverage
 coverage/
 nul

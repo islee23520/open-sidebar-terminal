@@ -4,9 +4,18 @@ import { TmuxSessionManager } from "../services/TmuxSessionManager";
 import {
   TmuxDashboardActionMessage,
   TmuxDashboardHostMessage,
+  TmuxDashboardPaneDto,
   TmuxDashboardSessionDto,
 } from "../types";
 
+interface PaneCapableTmuxSessionManager {
+  listPanes(sessionId: string): Promise<TmuxDashboardPaneDto[]>;
+  sendTextToPane(paneId: string, text: string): Promise<void>;
+}
+
+/**
+ * Terminal Managers dashboard provider. Webview-based tmux session manager with inline pane controls (split, switch, resize, swap, kill). Filters sessions to current workspace.
+ */
 export class TmuxSessionsDashboardProvider
   implements vscode.WebviewViewProvider, vscode.Disposable
 {
@@ -15,12 +24,23 @@ export class TmuxSessionsDashboardProvider
   private view?: vscode.WebviewView;
   private readonly subscriptions: vscode.Disposable[] = [];
 
+  /**
+   * @param context Extension context
+   * @param tmuxSessionManager Tmux session manager service
+   * @param outputChannel Optional output channel for logging
+   */
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly tmuxSessionManager: TmuxSessionManager,
     private readonly outputChannel?: vscode.OutputChannel,
   ) {}
 
+  /**
+   * Resolves the webview view and sets up message handling and visibility changes.
+   * @param webviewView The webview view to resolve
+   * @param _context Webview view resolve context
+   * @param _token Cancellation token
+   */
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
     _context: vscode.WebviewViewResolveContext,
@@ -60,6 +80,9 @@ export class TmuxSessionsDashboardProvider
     void this.postSessionsToWebview();
   }
 
+  /**
+   * Discovers, filters, and posts tmux sessions and their panes to the webview.
+   */
   private async postSessionsToWebview(): Promise<void> {
     if (!this.view) {
       return;
@@ -76,17 +99,28 @@ export class TmuxSessionsDashboardProvider
         ? sessions.filter((session) => session.workspace === workspaceName)
         : sessions;
 
+      const panesMap: Record<string, TmuxDashboardPaneDto[]> = {};
+      for (const session of filtered) {
+        try {
+          panesMap[session.id] = await this.listPanesForSession(session.id);
+        } catch {
+          panesMap[session.id] = [];
+        }
+      }
+
       const payload: TmuxDashboardSessionDto[] = filtered.map((session) => ({
         id: session.id,
         name: session.name,
         workspace: session.workspace,
         isActive: session.isActive,
+        paneCount: panesMap[session.id]?.length ?? 0,
       }));
 
       const message: TmuxDashboardHostMessage = {
         type: "updateTmuxSessions",
         sessions: payload,
         workspace: workspaceName ?? "No workspace",
+        panes: panesMap,
       };
 
       await this.view.webview.postMessage(message);
@@ -98,12 +132,17 @@ export class TmuxSessionsDashboardProvider
         type: "updateTmuxSessions",
         sessions: [],
         workspace: "Unavailable",
+        panes: {},
       };
 
       await this.view.webview.postMessage(message);
     }
   }
 
+  /**
+   * Handles incoming messages from the webview and executes corresponding commands or actions.
+   * @param message The message received from the webview
+   */
   private async handleWebviewMessage(
     message: TmuxDashboardActionMessage | undefined,
   ): Promise<void> {
@@ -130,11 +169,60 @@ export class TmuxSessionsDashboardProvider
         await vscode.commands.executeCommand("opencodeTui.switchNativeShell");
         await this.postSessionsToWebview();
         return;
+      case "expandPanes":
+        await this.postSessionsToWebview();
+        return;
+      case "switchPane":
+        await this.tmuxSessionManager.selectPane(message.paneId);
+        await this.postSessionsToWebview();
+        return;
+      case "splitPane":
+        await this.tmuxSessionManager.splitPane(
+          message.paneId ?? message.sessionId,
+          message.direction,
+        );
+        await this.postSessionsToWebview();
+        return;
+      case "splitPaneWithCommand":
+        await this.tmuxSessionManager.splitPane(
+          message.paneId ?? message.sessionId,
+          message.direction,
+          { command: message.command },
+        );
+        await this.postSessionsToWebview();
+        return;
+      case "sendTextToPane":
+        await this.sendTextToPane(message.paneId, message.text);
+        return;
+      case "killPane":
+        await this.tmuxSessionManager.killPane(message.paneId);
+        await this.postSessionsToWebview();
+        return;
+      case "resizePane":
+        await this.tmuxSessionManager.resizePane(
+          message.paneId,
+          message.direction as "L" | "R" | "U" | "D",
+          message.amount,
+        );
+        await this.postSessionsToWebview();
+        return;
+      case "swapPane":
+        await this.tmuxSessionManager.swapPanes(
+          message.sourcePaneId,
+          message.targetPaneId,
+        );
+        await this.postSessionsToWebview();
+        return;
       default:
         return;
     }
   }
 
+  /**
+   * Generates the HTML content for the webview.
+   * @param webview The webview to generate HTML for
+   * @returns The HTML string
+   */
   private getHtmlContent(webview: vscode.Webview): string {
     const nonce = this.getNonce();
 
@@ -144,7 +232,7 @@ export class TmuxSessionsDashboardProvider
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tmux Sessions</title>
+  <title>Terminal Managers</title>
   <style>
     body {
       margin: 0;
@@ -246,12 +334,97 @@ export class TmuxSessionsDashboardProvider
       border: 1px dashed var(--vscode-panel-border);
       border-radius: 6px;
     }
+    .return-banner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+      background: var(--vscode-inputValidation-warningBackground, rgba(255,200,0,0.1));
+      border: 1px solid var(--vscode-inputValidation-warningBorder, #b89500);
+      border-radius: 6px;
+      font-size: 12px;
+      gap: 8px;
+    }
+    .return-banner span {
+      color: var(--vscode-foreground);
+    }
+    .pane-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 0;
+      cursor: pointer;
+      user-select: none;
+      font-size: 12px;
+      color: var(--vscode-descriptionForeground);
+    }
+    .pane-header:hover {
+      color: var(--vscode-foreground);
+    }
+    .pane-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      padding-left: 8px;
+      border-left: 2px solid var(--vscode-panel-border);
+      margin-left: 8px;
+    }
+    .pane-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 2px 4px;
+      border-radius: 3px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .pane-item:hover {
+      background: var(--vscode-list-hoverBackground);
+    }
+    .pane-item.active {
+      font-weight: 600;
+    }
+    .pane-item.active .pane-name::before {
+      content: "✓ ";
+      color: var(--vscode-terminal-ansiGreen, #4ec9b0);
+    }
+    .pane-actions {
+      display: flex;
+      gap: 4px;
+    }
+    .pane-actions button {
+      padding: 1px 6px;
+      font-size: 11px;
+      border: none;
+      background: transparent;
+      color: var(--vscode-descriptionForeground);
+      cursor: pointer;
+      border-radius: 3px;
+    }
+    .pane-actions button:hover {
+      background: var(--vscode-list-hoverBackground);
+      color: var(--vscode-foreground);
+    }
+    .pane-split-btn {
+      padding: 1px 6px;
+      font-size: 11px;
+      border: none;
+      background: transparent;
+      color: var(--vscode-descriptionForeground);
+      cursor: pointer;
+      border-radius: 3px;
+    }
+    .pane-split-btn:hover {
+      background: var(--vscode-list-hoverBackground);
+      color: var(--vscode-foreground);
+    }
   </style>
 </head>
 <body>
   <div class="header">
     <div class="header-main">
-      <div class="title">Tmux Sessions</div>
+      <div class="title">Terminal Managers</div>
       <div class="workspace" id="workspace">Workspace: -</div>
     </div>
     <div class="header-actions">
@@ -260,10 +433,16 @@ export class TmuxSessionsDashboardProvider
       <button id="refresh" data-action="refresh">Refresh</button>
     </div>
   </div>
+  <div class="return-banner" id="return-banner" style="display:none;">
+    <span>Terminal is attached to a different workspace session</span>
+    <button class="primary" id="return-btn">Return to <span id="return-workspace"></span></button>
+  </div>
   <div id="session-list" class="session-list"></div>
 
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
+    const expandedSessions = new Set();
+    let lastPayload = { sessions: [], workspace: "", panes: {} };
 
     function escapeHtml(value) {
       return String(value)
@@ -275,8 +454,12 @@ export class TmuxSessionsDashboardProvider
     }
 
     function render(payload) {
+      lastPayload = payload || { sessions: [], workspace: "", panes: {} };
+
       const workspace = document.getElementById("workspace");
       const list = document.getElementById("session-list");
+      const banner = document.getElementById("return-banner");
+      const returnWorkspace = document.getElementById("return-workspace");
       if (!workspace || !list) {
         return;
       }
@@ -284,30 +467,83 @@ export class TmuxSessionsDashboardProvider
       workspace.textContent = "Workspace: " + (payload.workspace || "-");
 
       const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+      const panes = payload.panes || {};
+
+      const activeOther = sessions.find(
+        (s) => s.isActive && s.workspace !== payload.workspace,
+      );
+
+      if (banner && returnWorkspace) {
+        if (activeOther) {
+          banner.style.display = "flex";
+          returnWorkspace.textContent = payload.workspace || "current workspace";
+        } else {
+          banner.style.display = "none";
+        }
+      }
+
       if (sessions.length === 0) {
         list.innerHTML = '<div class="empty">No tmux sessions for this workspace.</div>';
         return;
       }
 
       list.innerHTML = sessions
-        .map((session) => {
-          const activeClass = session.isActive ? " active" : "";
-          const statusText = session.isActive ? "Current" : "Available";
-          const buttonLabel = session.isActive ? "Current" : "Switch";
-          const disabled = session.isActive ? ' disabled' : '';
+        .map((s) => {
+          const activeClass = s.isActive ? " active" : "";
+          const statusText = s.isActive ? "Current" : "Available";
+          const buttonLabel = s.isActive ? "Current" : "Switch";
+          const disabled = s.isActive ? " disabled" : "";
+          const sessionPanes = panes[s.id] || [];
+          const paneCount = sessionPanes.length;
+          const isExpanded = expandedSessions.has(s.id);
+
           return [
             '<div class="session-card' + activeClass + '">',
             '<div class="row">',
             '<div>',
-            '<strong>' + escapeHtml(session.name) + '</strong>',
+            '<strong>' + escapeHtml(s.name) + '</strong>',
             '<div class="status">' + statusText + '</div>',
             '</div>',
-            '<button class="primary" data-session-id="' + escapeHtml(session.id) + '"' + disabled + '>' + buttonLabel + '</button>',
+            '<button class="primary" data-session-id="' + escapeHtml(s.id) + '"' + disabled + '>' + buttonLabel + '</button>',
             '</div>',
             '<div class="meta-grid">',
-            '<div class="meta">tmux session: ' + escapeHtml(session.id) + '</div>',
-            '<div class="meta">workspace: ' + escapeHtml(session.workspace) + '</div>',
+            '<div class="meta">tmux session: ' + escapeHtml(s.id) + '</div>',
+            '<div class="meta">workspace: ' + escapeHtml(s.workspace) + '</div>',
             '</div>',
+            '<div class="pane-header" data-session-id="' + escapeHtml(s.id) + '">',
+            '<span>' + (isExpanded ? "▼" : "▶") + ' Panes (' + paneCount + ")</span>",
+            "<div>",
+            '<button class="pane-split-btn" data-action="splitH" data-session-id="' + escapeHtml(s.id) + '" title="Split Horizontal">↕</button>',
+            '<button class="pane-split-btn" data-action="splitV" data-session-id="' + escapeHtml(s.id) + '" title="Split Vertical">↔</button>',
+            "</div>",
+            "</div>",
+            isExpanded
+              ? '<div class="pane-list">' +
+                sessionPanes
+                  .map((p) => {
+                    const activePaneClass = p.isActive ? " active" : "";
+                    return (
+                      '<div class="pane-item' +
+                      activePaneClass +
+                      '" data-session-id="' +
+                      escapeHtml(s.id) +
+                      '" data-pane-id="' +
+                      escapeHtml(p.paneId) +
+                      '">' +
+                      '<span class="pane-name">Pane ' +
+                      p.index +
+                      (p.title ? ": " + escapeHtml(p.title) : "") +
+                      "</span>" +
+                      '<div class="pane-actions">' +
+                      '<button class="pane-action-switch" title="Switch">⇥</button>' +
+                      '<button class="pane-action-send" title="Send Text">⌨</button>' +
+                      '<button class="pane-action-kill" title="Kill Pane">✕</button>' +
+                      "</div></div>"
+                    );
+                  })
+                  .join("") +
+                "</div>"
+              : "",
             '</div>'
           ].join("");
         })
@@ -316,6 +552,100 @@ export class TmuxSessionsDashboardProvider
 
     document.addEventListener("click", (event) => {
       const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+
+      const sessions = Array.isArray(lastPayload.sessions)
+        ? lastPayload.sessions
+        : [];
+
+      if (target.id === "return-btn" || target.closest("#return-btn")) {
+        const matching = sessions.find((s) => s.workspace === lastPayload.workspace);
+        if (matching) {
+          vscode.postMessage({ action: "activate", sessionId: matching.id });
+        } else {
+          vscode.postMessage({ action: "create" });
+        }
+        return;
+      }
+
+      if (target.classList.contains("pane-split-btn")) {
+        const button = target;
+        if (!(button instanceof HTMLButtonElement)) {
+          return;
+        }
+        const sessionId = button.dataset.sessionId;
+        const direction = button.dataset.action === "splitH" ? "h" : "v";
+        vscode.postMessage({ action: "splitPane", sessionId, direction });
+        return;
+      }
+
+      const paneHeader = target.closest(".pane-header");
+      if (paneHeader instanceof HTMLElement) {
+        const sessionId = paneHeader.dataset.sessionId;
+        if (sessionId) {
+          if (expandedSessions.has(sessionId)) {
+            expandedSessions.delete(sessionId);
+          } else {
+            expandedSessions.add(sessionId);
+          }
+          render(lastPayload);
+        }
+        return;
+      }
+
+      if (target.closest(".pane-action-switch")) {
+        const item = target.closest(".pane-item");
+        if (item instanceof HTMLElement) {
+          vscode.postMessage({
+            action: "switchPane",
+            sessionId: item.dataset.sessionId,
+            paneId: item.dataset.paneId,
+          });
+        }
+        return;
+      }
+
+      if (target.closest(".pane-action-send")) {
+        const item = target.closest(".pane-item");
+        if (item instanceof HTMLElement) {
+          const text = window.prompt("Send to pane:", "");
+          if (text !== null && text !== "") {
+            vscode.postMessage({
+              action: "sendTextToPane",
+              sessionId: item.dataset.sessionId,
+              paneId: item.dataset.paneId,
+              text,
+            });
+          }
+        }
+        return;
+      }
+
+      if (target.closest(".pane-action-kill")) {
+        const item = target.closest(".pane-item");
+        if (item instanceof HTMLElement) {
+          const sessionId = item.dataset.sessionId;
+          const paneId = item.dataset.paneId;
+          const payloadPanes =
+            (lastPayload.panes && sessionId ? lastPayload.panes[sessionId] : []) ||
+            [];
+          if (payloadPanes.length <= 1) {
+            window.alert("Cannot kill the last pane — use 'Kill Session' instead.");
+            return;
+          }
+          if (paneId && window.confirm("Kill pane " + paneId + "?")) {
+            vscode.postMessage({
+              action: "killPane",
+              sessionId,
+              paneId,
+            });
+          }
+        }
+        return;
+      }
+
       if (!(target instanceof HTMLButtonElement)) {
         return;
       }
@@ -345,6 +675,63 @@ export class TmuxSessionsDashboardProvider
 </html>`;
   }
 
+  /**
+   * Returns a pane-capable session manager if available.
+   * @returns Pane-capable session manager or undefined
+   */
+  private getPaneManager(): PaneCapableTmuxSessionManager | undefined {
+    const manager = this
+      .tmuxSessionManager as unknown as Partial<PaneCapableTmuxSessionManager>;
+    if (
+      typeof manager.listPanes === "function" &&
+      typeof manager.sendTextToPane === "function"
+    ) {
+      return manager as PaneCapableTmuxSessionManager;
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Lists panes for a specific tmux session.
+   * @param sessionId The session ID to list panes for
+   * @returns Array of pane DTOs
+   */
+  private async listPanesForSession(
+    sessionId: string,
+  ): Promise<TmuxDashboardPaneDto[]> {
+    const manager = this.getPaneManager();
+    if (!manager) {
+      return [];
+    }
+
+    const panes = await manager.listPanes(sessionId);
+    return panes.map((p) => ({
+      paneId: p.paneId,
+      index: p.index,
+      title: p.title,
+      isActive: p.isActive,
+    }));
+  }
+
+  /**
+   * Sends text to a specific tmux pane.
+   * @param paneId The pane ID to send text to
+   * @param text The text to send
+   */
+  private async sendTextToPane(paneId: string, text: string): Promise<void> {
+    const manager = this.getPaneManager();
+    if (!manager) {
+      return;
+    }
+
+    await manager.sendTextToPane(paneId, text);
+  }
+
+  /**
+   * Generates a random nonce for CSP.
+   * @returns A random 32-character string
+   */
   private getNonce(): string {
     let text = "";
     const possible =
@@ -355,6 +742,9 @@ export class TmuxSessionsDashboardProvider
     return text;
   }
 
+  /**
+   * Disposes of subscriptions and cleans up resources.
+   */
   public dispose(): void {
     for (const subscription of this.subscriptions) {
       subscription.dispose();

@@ -7,21 +7,18 @@ import {
   OpenCodeInstance,
 } from "./InstanceDiscoveryService";
 import { InstanceController } from "./InstanceController";
-import { OpenCodeApiClientFactory } from "./OpenCodeApiClientFactory";
 import { OpenCodeApiClient } from "./OpenCodeApiClient";
 
 vi.mock("./InstanceDiscoveryService");
 vi.mock("./InstanceController");
-vi.mock("./OpenCodeApiClientFactory");
 
 describe("ConnectionResolver", () => {
   let resolver: ConnectionResolver;
   let mockStore: InstanceStore;
   let mockDiscovery: InstanceDiscoveryService;
   let mockController: InstanceController;
-  let mockClientFactory: OpenCodeApiClientFactory;
-  let mockClient: OpenCodeApiClient;
   let mockOutputChannel: vscode.OutputChannel;
+  let mockHealthCheck: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -42,15 +39,7 @@ describe("ConnectionResolver", () => {
       spawn: vi.fn(),
     } as any;
 
-    // Mock OpenCodeApiClient
-    mockClient = {
-      healthCheck: vi.fn(),
-    } as any;
-
-    // Mock OpenCodeApiClientFactory
-    mockClientFactory = {
-      createClient: vi.fn().mockReturnValue(mockClient),
-    } as any;
+    mockHealthCheck = vi.spyOn(OpenCodeApiClient.prototype, "healthCheck");
 
     // Mock OutputChannel
     mockOutputChannel = {
@@ -61,7 +50,6 @@ describe("ConnectionResolver", () => {
       mockStore,
       mockDiscovery,
       mockController,
-      mockClientFactory,
       mockOutputChannel,
     );
   });
@@ -84,12 +72,12 @@ describe("ConnectionResolver", () => {
       };
 
       vi.mocked(mockStore.get).mockReturnValue(record);
-      vi.mocked(mockClient.healthCheck).mockResolvedValue(true);
+      mockHealthCheck.mockResolvedValue(true);
 
       const port = await resolver.resolve("test-instance");
 
       expect(port).toBe(4096);
-      expect(mockClient.healthCheck).toHaveBeenCalled();
+      expect(mockHealthCheck).toHaveBeenCalled();
       expect(mockStore.upsert).toHaveBeenCalled();
     });
 
@@ -104,12 +92,12 @@ describe("ConnectionResolver", () => {
       };
 
       vi.mocked(mockStore.get).mockReturnValue(record);
-      vi.mocked(mockClient.healthCheck).mockResolvedValue(true);
+      mockHealthCheck.mockResolvedValue(true);
 
       const port = await resolver.resolve("test-instance");
 
       expect(port).toBe(4097);
-      expect(mockClient.healthCheck).toHaveBeenCalled();
+      expect(mockHealthCheck).toHaveBeenCalled();
     });
 
     it("should fallback to Tier 3 when stored port health check fails", async () => {
@@ -131,7 +119,7 @@ describe("ConnectionResolver", () => {
       };
 
       vi.mocked(mockStore.get).mockReturnValue(record);
-      vi.mocked(mockClient.healthCheck)
+      mockHealthCheck
         .mockResolvedValueOnce(false) // Tier 2 fails
         .mockResolvedValueOnce(true); // Tier 3 succeeds
       vi.mocked(mockDiscovery.discoverInstances).mockResolvedValue([
@@ -158,16 +146,12 @@ describe("ConnectionResolver", () => {
       };
 
       vi.mocked(mockStore.get).mockReturnValue(record);
-      vi.mocked(mockClient.healthCheck).mockResolvedValue(true);
+      mockHealthCheck.mockResolvedValue(true);
 
       const port = await resolver.resolve("test-instance");
 
       expect(port).toBe(5000);
-      expect(mockClientFactory.createClient).toHaveBeenCalledWith(
-        "test-instance",
-        5000,
-      );
-      expect(mockClient.healthCheck).toHaveBeenCalled();
+      expect(mockHealthCheck).toHaveBeenCalled();
     });
 
     it("should proceed to Tier 3 when health check returns false", async () => {
@@ -182,11 +166,11 @@ describe("ConnectionResolver", () => {
       };
 
       vi.mocked(mockStore.get).mockReturnValue(record);
-      vi.mocked(mockClient.healthCheck).mockResolvedValue(false);
+      mockHealthCheck.mockResolvedValue(false);
       vi.mocked(mockDiscovery.discoverInstances).mockResolvedValue([]);
       vi.mocked(mockController.spawn).mockResolvedValue(undefined);
 
-      const port = await resolver.resolve("test-instance");
+      await resolver.resolve("test-instance");
 
       expect(mockDiscovery.discoverInstances).toHaveBeenCalled();
       expect(mockController.spawn).toHaveBeenCalled();
@@ -204,12 +188,10 @@ describe("ConnectionResolver", () => {
       };
 
       vi.mocked(mockStore.get).mockReturnValue(record);
-      vi.mocked(mockClient.healthCheck).mockRejectedValue(
-        new Error("Connection refused"),
-      );
+      mockHealthCheck.mockRejectedValue(new Error("Connection refused"));
       vi.mocked(mockDiscovery.discoverInstances).mockResolvedValue([]);
 
-      const port = await resolver.resolve("test-instance");
+      await resolver.resolve("test-instance");
 
       expect(mockDiscovery.discoverInstances).toHaveBeenCalled();
     });
@@ -236,13 +218,13 @@ describe("ConnectionResolver", () => {
       vi.mocked(mockDiscovery.discoverInstances).mockResolvedValue([
         discoveredInstance,
       ]);
-      vi.mocked(mockClient.healthCheck).mockResolvedValue(true);
+      mockHealthCheck.mockResolvedValue(true);
 
       const port = await resolver.resolve("test-instance");
 
       expect(port).toBe(6000);
       expect(mockDiscovery.discoverInstances).toHaveBeenCalled();
-      expect(mockClient.healthCheck).toHaveBeenCalled();
+      expect(mockHealthCheck).toHaveBeenCalled();
       expect(mockStore.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           runtime: expect.objectContaining({
@@ -319,7 +301,7 @@ describe("ConnectionResolver", () => {
       vi.mocked(mockDiscovery.discoverInstances).mockResolvedValue([
         discoveredInstance,
       ]);
-      vi.mocked(mockClient.healthCheck).mockResolvedValue(false);
+      mockHealthCheck.mockResolvedValue(false);
 
       const port = await resolver.resolve("test-instance");
 
@@ -354,7 +336,7 @@ describe("ConnectionResolver", () => {
         .mockReturnValueOnce(spawnedRecord);
       vi.mocked(mockDiscovery.discoverInstances).mockResolvedValue([]);
       vi.mocked(mockController.spawn).mockResolvedValue(undefined);
-      vi.mocked(mockClient.healthCheck).mockResolvedValue(true);
+      mockHealthCheck.mockResolvedValue(true);
 
       const port = await resolver.resolve("test-instance");
 
@@ -405,7 +387,7 @@ describe("ConnectionResolver", () => {
         .mockReturnValueOnce(spawnedRecord);
       vi.mocked(mockDiscovery.discoverInstances).mockResolvedValue([]);
       vi.mocked(mockController.spawn).mockResolvedValue(undefined);
-      vi.mocked(mockClient.healthCheck).mockResolvedValue(false);
+      mockHealthCheck.mockResolvedValue(false);
 
       const port = await resolver.resolve("test-instance");
 
@@ -417,7 +399,6 @@ describe("ConnectionResolver", () => {
         mockStore,
         mockDiscovery,
         undefined, // No controller
-        mockClientFactory,
         mockOutputChannel,
       );
 
@@ -468,7 +449,7 @@ describe("ConnectionResolver", () => {
 
       // Tier 4: Auto-spawn succeeds
       vi.mocked(mockController.spawn).mockResolvedValue(undefined);
-      vi.mocked(mockClient.healthCheck).mockResolvedValue(true);
+      mockHealthCheck.mockResolvedValue(true);
 
       const port = await resolver.resolve("test-instance");
 
@@ -582,7 +563,7 @@ describe("ConnectionResolver", () => {
       vi.mocked(mockDiscovery.discoverInstances).mockResolvedValue(
         discoveredInstances,
       );
-      vi.mocked(mockClient.healthCheck).mockResolvedValue(true);
+      mockHealthCheck.mockResolvedValue(true);
 
       const port = await resolver.resolve("test-instance");
 
@@ -617,7 +598,7 @@ describe("ConnectionResolver", () => {
       vi.mocked(mockDiscovery.discoverInstances).mockResolvedValue([
         discoveredInstance,
       ]);
-      vi.mocked(mockClient.healthCheck).mockResolvedValue(true);
+      mockHealthCheck.mockResolvedValue(true);
 
       const port = await resolver.resolve("test-instance");
 
@@ -654,7 +635,7 @@ describe("ConnectionResolver", () => {
       vi.mocked(mockDiscovery.discoverInstances).mockResolvedValue(
         discoveredInstances,
       );
-      vi.mocked(mockClient.healthCheck).mockResolvedValue(true);
+      mockHealthCheck.mockResolvedValue(true);
 
       const port = await resolver.resolve("test-instance");
 

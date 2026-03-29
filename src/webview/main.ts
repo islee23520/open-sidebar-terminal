@@ -689,14 +689,10 @@ window.addEventListener("message", (event) => {
   }
 });
 
-import { initSidebar } from "./sidebar/main";
-
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => {
     initTerminal();
-    initSidebar(vscode);
   });
 } else {
   initTerminal();
-  initSidebar(vscode);
 }

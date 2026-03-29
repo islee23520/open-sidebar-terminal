@@ -259,7 +259,17 @@ describe("InstanceDiscoveryService", () => {
         callback(null, "", "");
       }
 
-      return { pid: 4321 } as any;
+      const child = {
+        pid: 4321,
+        on: vi.fn((event: string, handler: (code?: number) => void) => {
+          if (event === "exit") {
+            queueMicrotask(() => handler(0));
+          }
+          return child;
+        }),
+      };
+
+      return child as any;
     });
     (vscode.workspace as any).workspaceFolders = [
       { uri: { fsPath: "/workspace/spawn" } },

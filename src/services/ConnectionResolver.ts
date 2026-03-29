@@ -5,14 +5,15 @@ import {
 } from "./InstanceDiscoveryService";
 import { InstanceController } from "./InstanceController";
 import { InstanceId, InstanceRecord, InstanceStore } from "./InstanceStore";
-import { OpenCodeApiClientFactory } from "./OpenCodeApiClientFactory";
+import { OpenCodeApiClient } from "./OpenCodeApiClient";
 
 export class ConnectionResolver {
+  private readonly clientPool: Map<InstanceId, OpenCodeApiClient> = new Map();
+
   constructor(
     private readonly instanceStore: InstanceStore,
     private readonly discoveryService: InstanceDiscoveryService = new InstanceDiscoveryService(),
     private readonly controller?: InstanceController,
-    private readonly clientFactory: OpenCodeApiClientFactory = new OpenCodeApiClientFactory(),
     private readonly outputChannel?: vscode.OutputChannel,
   ) {}
 
@@ -160,7 +161,9 @@ export class ConnectionResolver {
     port: number,
   ): Promise<boolean> {
     try {
-      const client = this.clientFactory.createClient(instanceId, port);
+      this.clientPool.delete(instanceId);
+      const client = new OpenCodeApiClient(port);
+      this.clientPool.set(instanceId, client);
       return await client.healthCheck();
     } catch (error) {
       this.log(
