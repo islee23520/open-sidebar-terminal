@@ -45,6 +45,7 @@ export type TmuxDashboardActionMessage =
   | { action: "switchNativeShell" }
   | { action: "activate"; sessionId: string }
   | { action: "expandPanes"; sessionId: string }
+  | { action: "killSession"; sessionId: string }
   | { action: "switchPane"; sessionId: string; paneId: string }
   | {
       action: "splitPane";
@@ -145,7 +146,15 @@ export type HostMessage =
   | { type: "clearTerminal" }
   | { type: "focusTerminal" }
   | { type: "webviewVisible" }
-  | { type: "platformInfo"; platform: string };
+  | { type: "platformInfo"; platform: string }
+  | {
+      type: "terminalConfig";
+      fontSize: number;
+      fontFamily: string;
+      cursorBlink: boolean;
+      cursorStyle: "block" | "underline" | "bar";
+      scrollback: number;
+    };
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type DiagnosticSeverity = "error" | "warning" | "information" | "hint";

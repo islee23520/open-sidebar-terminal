@@ -57,6 +57,10 @@ export class TmuxSessionManager {
     },
   ) {}
 
+  public dispose(): void {
+    this._onPaneChanged.dispose();
+  }
+
   public async isAvailable(): Promise<boolean> {
     try {
       await this.runTmux(["-V"]);

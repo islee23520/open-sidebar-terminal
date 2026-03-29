@@ -7,6 +7,7 @@ import { PortManager } from "../../services/PortManager";
 import { ContextSharingService } from "../../services/ContextSharingService";
 import { OutputChannelService } from "../../services/OutputChannelService";
 import { InstanceId, InstanceStore } from "../../services/InstanceStore";
+import { AI_TOOLS } from "../../types";
 import {
   TmuxSessionManager,
   TmuxUnavailableError,
@@ -158,7 +159,31 @@ export class OpenCodeSessionRuntime {
       const config = vscode.workspace.getConfiguration("opencodeTui");
       const enableHttpApi = config.get<boolean>("enableHttpApi", true);
       const httpTimeout = config.get<number>("httpTimeout", 5000);
-      const command = config.get<string>("command", "opencode -c");
+      const defaultTool = config.get<string>("defaultAiTool", "opencode");
+
+      let command: string;
+      if (defaultTool && AI_TOOLS.some((t) => t.id === defaultTool)) {
+        command = config.get<string>("command", `${defaultTool} -c`);
+      } else {
+        const toolItems = AI_TOOLS.map((t) => ({
+          label: t.label,
+          description: `Launch ${t.label} in tmux`,
+          tool: t,
+        }));
+        const picked = await vscode.window.showQuickPick(toolItems, {
+          placeHolder: "Select AI tool to launch",
+        });
+        if (!picked) {
+          this.isStarting = false;
+          return;
+        }
+        command = `${picked.tool.command} -c`;
+        await config.update(
+          "defaultAiTool",
+          picked.tool.id,
+          vscode.ConfigurationTarget.Global,
+        );
+      }
       const forceNativeShell = this.forceNativeShellNextStart;
       const selectedTmuxSessionId = this.selectedTmuxSessionId;
       let tmuxSessionId = forceNativeShell
@@ -540,9 +565,9 @@ export class OpenCodeSessionRuntime {
     await this.switchToInstance(this.activeInstanceId, { forceRestart: true });
   }
 
-  public async createTmuxSession(): Promise<void> {
+  public async createTmuxSession(): Promise<string | undefined> {
     if (!this.tmuxSessionManager) {
-      return;
+      return undefined;
     }
 
     const { workspacePath } = this.resolveStartupWorkspacePath();
@@ -561,11 +586,13 @@ export class OpenCodeSessionRuntime {
 
       await this.tmuxSessionManager.createSession(candidate, workspacePath);
       await this.switchToTmuxSession(candidate);
+      return candidate;
     } catch (error) {
       this.logger.error(
         `[TerminalProvider] Failed to create tmux session: ${error instanceof Error ? error.message : String(error)}`,
       );
       vscode.window.showErrorMessage("Failed to create tmux session");
+      return undefined;
     }
   }
 

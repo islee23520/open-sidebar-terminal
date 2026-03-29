@@ -373,6 +373,16 @@
             "warning"
           ],
           "description": "Diagnostic severities that trigger code actions"
+        },
+        "opencodeTui.defaultAiTool": {
+          "type": "string",
+          "enum": [
+            "opencode",
+            "claude",
+            "codex"
+          ],
+          "default": "opencode",
+          "description": "Default AI tool to launch when creating a new tmux session"
         }
       }
     }

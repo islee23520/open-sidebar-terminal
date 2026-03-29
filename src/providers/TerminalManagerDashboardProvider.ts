@@ -6,6 +6,8 @@ import {
   TmuxDashboardHostMessage,
   TmuxDashboardPaneDto,
   TmuxDashboardSessionDto,
+  AiTool,
+  AI_TOOLS,
 } from "../types";
 
 /**
@@ -66,6 +68,12 @@ export class TerminalManagerDashboardProvider
         } else {
           this.stopPolling();
         }
+      }),
+    );
+
+    this.subscriptions.push(
+      this.tmuxSessionManager.onPaneChanged(() => {
+        void this.postSessionsToWebview();
       }),
     );
 
@@ -164,8 +172,15 @@ export class TerminalManagerDashboardProvider
         await this.postSessionsToWebview();
         return;
       case "create":
-        await vscode.commands.executeCommand("opencodeTui.createTmuxSession");
-        await this.postSessionsToWebview();
+        {
+          const newSessionId = (await vscode.commands.executeCommand(
+            "opencodeTui.createTmuxSession",
+          )) as string | undefined;
+          await this.postSessionsToWebview();
+          if (newSessionId) {
+            await this.showAiToolSelector(newSessionId, newSessionId);
+          }
+        }
         return;
       case "switchNativeShell":
         await vscode.commands.executeCommand("opencodeTui.switchNativeShell");
@@ -214,6 +229,18 @@ export class TerminalManagerDashboardProvider
           message.sourcePaneId,
           message.targetPaneId,
         );
+        await this.postSessionsToWebview();
+        return;
+      case "launchAiTool":
+        await this.handleLaunchAiTool(
+          message.sessionId,
+          message.tool,
+          message.savePreference,
+        );
+        await this.postSessionsToWebview();
+        return;
+      case "killSession":
+        await this.tmuxSessionManager.killSession(message.sessionId);
         await this.postSessionsToWebview();
         return;
       default:
@@ -320,6 +347,20 @@ export class TerminalManagerDashboardProvider
       background: var(--vscode-button-background);
       color: var(--vscode-button-foreground);
     }
+    button.danger {
+      background: transparent;
+      color: var(--vscode-descriptionForeground);
+      border: 1px solid var(--vscode-input-border, transparent);
+      cursor: pointer;
+      padding: 1px 6px;
+      font-size: 12px;
+      border-radius: 3px;
+    }
+    button.danger:hover {
+      color: var(--vscode-errorForeground);
+      border-color: var(--vscode-inputBorder);
+      background: var(--vscode-inputBackground);
+    }
     button[disabled] {
       cursor: default;
       opacity: 0.7;
@@ -389,25 +430,6 @@ export class TerminalManagerDashboardProvider
       font-weight: 600;
     }
     .pane-item.active .pane-name::before {
-      content: "✓ ";
-      color: var(--vscode-terminal-ansiGreen, #4ec9b0);
-    }
-    .pane-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 2px 4px;
-      border-radius: 3px;
-      font-size: 12px;
-      cursor: pointer;
-    }
-    .pane-item:hover {
-      background: var(--vscode-list-hoverBackground);
-    }
-    .pane-item.active {
-      font-weight: 600;
-    }
-    .pane-item.active .pane-name::before {
       content: "\\2713 ";
       color: var(--vscode-terminal-ansiGreen, #4ec9b0);
     }
@@ -441,6 +463,105 @@ export class TerminalManagerDashboardProvider
       background: var(--vscode-list-hoverBackground);
       color: var(--vscode-foreground);
     }
+    .ai-selector-backdrop {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.4);
+      z-index: 1000;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 12px;
+    }
+    .ai-selector-card {
+      background: var(--vscode-editor-background);
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 8px;
+      padding: 12px;
+      width: 100%;
+      max-width: 280px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    }
+    .ai-selector-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+    .ai-selector-subtitle {
+      font-size: 11px;
+      color: var(--vscode-descriptionForeground);
+      margin-bottom: 8px;
+    }
+    .ai-selector-options {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .ai-tool-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: background-color 0.1s;
+      user-select: none;
+    }
+    .ai-tool-option:hover {
+      background: var(--vscode-list-hoverBackground);
+    }
+    .ai-tool-option.focused {
+      background: var(--vscode-list-activeSelectionBackground);
+      color: var(--vscode-list-activeSelectionForeground);
+      outline: 1px solid var(--vscode-focusBorder);
+    }
+    .ai-tool-icon {
+      width: 20px;
+      height: 20px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .ai-tool-icon.opencode { background: #4ec9b0; color: #1e1e1e; }
+    .ai-tool-icon.claude { background: #d97706; color: #ffffff; }
+    .ai-tool-icon.codex { background: #6366f1; color: #ffffff; }
+    .ai-tool-label {
+      flex: 1;
+    }
+    .ai-tool-command {
+      font-size: 11px;
+      color: var(--vscode-descriptionForeground);
+      font-family: var(--vscode-editor-font-family, monospace);
+    }
+    .ai-selector-save {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--vscode-panel-border);
+      font-size: 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .ai-selector-save input {
+      margin: 0;
+      accent-color: var(--vscode-checkbox-background, var(--vscode-focusBorder));
+    }
+    .ai-selector-hint {
+      font-size: 10px;
+      color: var(--vscode-descriptionForeground);
+      margin-top: 6px;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -461,10 +582,32 @@ export class TerminalManagerDashboardProvider
   </div>
   <div id="session-list" class="session-list"></div>
 
+  <div id="ai-selector" class="ai-selector-backdrop">
+    <div class="ai-selector-card">
+      <div class="ai-selector-title">Launch AI Tool</div>
+      <div class="ai-selector-subtitle" id="ai-selector-session"></div>
+      <div class="ai-selector-options" id="ai-tool-options"></div>
+      <label class="ai-selector-save">
+        <input type="checkbox" id="ai-save-default">
+        <span>Save as default</span>
+      </label>
+      <div class="ai-selector-hint">↑↓ Navigate · Enter Select · Esc Dismiss</div>
+    </div>
+  </div>
+
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const expandedSessions = new Set();
     let lastPayload = { sessions: [], workspace: "", panes: {} };
+
+    var aiSelectorVisible = false;
+    var aiSelectorFocusedIndex = 0;
+    var aiSelectorSessionId = null;
+    var aiSelectorTools = [
+      { id: "opencode", label: "OpenCode", command: "opencode" },
+      { id: "claude", label: "Claude", command: "claude" },
+      { id: "codex", label: "Codex", command: "codex" }
+    ];
 
     function escapeHtml(value) {
       return String(value)
@@ -527,6 +670,7 @@ export class TerminalManagerDashboardProvider
             '<div class="status">' + statusText + '</div>',
             '</div>',
             '<button class="primary" data-session-id="' + escapeHtml(s.id) + '"' + disabled + '>' + buttonLabel + '</button>',
+            '<button class="danger" data-action="killSession" data-session-id="' + escapeHtml(s.id) + '" title="Kill Session">✕</button>',
             '</div>',
             '<div class="meta-grid">',
             '<div class="meta">tmux session: ' + escapeHtml(s.id) + '</div>',
@@ -570,6 +714,67 @@ export class TerminalManagerDashboardProvider
           ].join("");
         })
         .join("");
+    }
+
+    function showAiToolSelector(sessionId, sessionName, defaultTool) {
+      aiSelectorSessionId = sessionId;
+      aiSelectorVisible = true;
+      aiSelectorFocusedIndex = defaultTool
+        ? aiSelectorTools.findIndex(function(t) { return t.id === defaultTool; })
+        : 0;
+      if (aiSelectorFocusedIndex < 0) { aiSelectorFocusedIndex = 0; }
+
+      var optionsContainer = document.getElementById("ai-tool-options");
+      var subtitleEl = document.getElementById("ai-selector-session");
+      if (subtitleEl) { subtitleEl.textContent = "Session: " + sessionName; }
+
+      if (optionsContainer) {
+        optionsContainer.innerHTML = aiSelectorTools.map(function(tool, idx) {
+          var focusedClass = idx === aiSelectorFocusedIndex ? " focused" : "";
+          return '<div class="ai-tool-option' + focusedClass + '" data-tool-id="' + escapeHtml(tool.id) + '" data-tool-command="' + escapeHtml(tool.command) + '">'
+            + '<div class="ai-tool-icon ' + escapeHtml(tool.id) + '">' + escapeHtml(tool.label.charAt(0)) + '</div>'
+            + '<span class="ai-tool-label">' + escapeHtml(tool.label) + '</span>'
+            + '<span class="ai-tool-command">' + escapeHtml(tool.command) + '</span>'
+            + '</div>';
+        }).join("");
+      }
+
+      var saveCheckbox = document.getElementById("ai-save-default");
+      if (saveCheckbox) { saveCheckbox.checked = false; }
+
+      var backdrop = document.getElementById("ai-selector");
+      if (backdrop) { backdrop.style.display = "flex"; }
+    }
+
+    function hideAiToolSelector() {
+      aiSelectorVisible = false;
+      aiSelectorSessionId = null;
+      var backdrop = document.getElementById("ai-selector");
+      if (backdrop) { backdrop.style.display = "none"; }
+    }
+
+    function updateAiSelectorFocus() {
+      var options = document.querySelectorAll(".ai-tool-option");
+      options.forEach(function(el, idx) {
+        if (idx === aiSelectorFocusedIndex) {
+          el.classList.add("focused");
+          el.scrollIntoView({ block: "nearest" });
+        } else {
+          el.classList.remove("focused");
+        }
+      });
+    }
+
+    function selectAiTool(toolId) {
+      var saveCheckbox = document.getElementById("ai-save-default");
+      var savePref = saveCheckbox ? saveCheckbox.checked : false;
+      vscode.postMessage({
+        action: "launchAiTool",
+        sessionId: aiSelectorSessionId,
+        tool: toolId,
+        savePreference: savePref
+      });
+      hideAiToolSelector();
     }
 
     document.addEventListener("click", (event) => {
@@ -668,6 +873,19 @@ export class TerminalManagerDashboardProvider
         return;
       }
 
+      if (target.closest(".ai-tool-option")) {
+        var toolOption = target.closest(".ai-tool-option");
+        if (toolOption instanceof HTMLElement) {
+          selectAiTool(toolOption.dataset.toolId);
+        }
+        return;
+      }
+
+      if (target.id === "ai-selector" && !target.closest(".ai-selector-card")) {
+        hideAiToolSelector();
+        return;
+      }
+
       if (!(target instanceof HTMLButtonElement)) {
         return;
       }
@@ -675,6 +893,14 @@ export class TerminalManagerDashboardProvider
       const action = target.dataset.action;
       if (action === "refresh" || action === "create" || action === "switchNativeShell") {
         vscode.postMessage({ action });
+        return;
+      }
+
+      if (action === "killSession") {
+        const sessionId = target.dataset.sessionId;
+        if (sessionId && window.confirm("Kill tmux session " + sessionId + "?")) {
+          vscode.postMessage({ action: "killSession", sessionId });
+        }
         return;
       }
 
@@ -688,6 +914,37 @@ export class TerminalManagerDashboardProvider
       const message = event.data;
       if (message && message.type === "updateTmuxSessions") {
         render(message);
+      }
+      if (message && message.type === "showAiToolSelector") {
+        showAiToolSelector(message.sessionId, message.sessionName, message.defaultTool);
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (!aiSelectorVisible) { return; }
+
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        aiSelectorFocusedIndex = (aiSelectorFocusedIndex + 1) % aiSelectorTools.length;
+        updateAiSelectorFocus();
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        aiSelectorFocusedIndex = (aiSelectorFocusedIndex - 1 + aiSelectorTools.length) % aiSelectorTools.length;
+        updateAiSelectorFocus();
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        var tool = aiSelectorTools[aiSelectorFocusedIndex];
+        if (tool) { selectAiTool(tool.id); }
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        hideAiToolSelector();
+        return;
       }
     });
 
@@ -704,6 +961,70 @@ export class TerminalManagerDashboardProvider
    */
   private async sendTextToPane(paneId: string, text: string): Promise<void> {
     await this.tmuxSessionManager.sendTextToPane(paneId, text);
+  }
+
+  /**
+   * Shows the AI tool selector in the webview after a new tmux session is created.
+   * @param sessionId The newly created session ID
+   * @param sessionName Display name for the session
+   */
+  public async showAiToolSelector(
+    sessionId: string,
+    sessionName: string,
+  ): Promise<void> {
+    if (!this.view) {
+      return;
+    }
+
+    const config = vscode.workspace.getConfiguration("opencodeTui");
+    const defaultTool = config.get<AiTool>("defaultAiTool");
+
+    const message: TmuxDashboardHostMessage = {
+      type: "showAiToolSelector",
+      sessionId,
+      sessionName,
+      defaultTool,
+    };
+
+    await this.view.webview.postMessage(message);
+  }
+
+  /**
+   * Handles AI tool selection from the webview.
+   * Launches the selected tool in the first pane of the target tmux session.
+   */
+  private async handleLaunchAiTool(
+    sessionId: string,
+    tool: AiTool,
+    savePreference: boolean,
+  ): Promise<void> {
+    if (savePreference) {
+      const config = vscode.workspace.getConfiguration("opencodeTui");
+      await config.update(
+        "defaultAiTool",
+        tool,
+        vscode.ConfigurationTarget.Global,
+      );
+    }
+
+    const toolInfo = AI_TOOLS.find((t) => t.id === tool);
+    if (!toolInfo) {
+      return;
+    }
+
+    try {
+      const panes = await this.tmuxSessionManager.listPanes(sessionId);
+      if (panes.length > 0) {
+        await this.tmuxSessionManager.sendTextToPane(
+          panes[0].paneId,
+          toolInfo.command,
+        );
+      }
+    } catch (error) {
+      this.outputChannel?.appendLine(
+        `[TerminalManagerDashboardProvider] Failed to launch AI tool: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   /**

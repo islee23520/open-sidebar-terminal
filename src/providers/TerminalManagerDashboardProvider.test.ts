@@ -43,9 +43,11 @@ describe("TerminalManagerDashboardProvider", () => {
     listPanes = vi.fn().mockResolvedValue([]),
   ) {
     const context = new vscode.ExtensionContext();
+    const onPaneChangedEvent = new vscode.EventEmitter<void>();
     const tmuxSessionManager = {
       discoverSessions,
       listPanes,
+      onPaneChanged: onPaneChangedEvent.event,
     } as unknown as TmuxSessionManager;
 
     return {
