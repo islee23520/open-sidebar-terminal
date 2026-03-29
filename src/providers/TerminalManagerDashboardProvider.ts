@@ -156,6 +156,10 @@ export class TerminalManagerDashboardProvider
   private async handleWebviewMessage(
     message: TmuxDashboardActionMessage | undefined,
   ): Promise<void> {
+    this.outputChannel?.appendLine(
+      `[TerminalManager] Received webview message: ${JSON.stringify(message)}`,
+    );
+
     if (!message) {
       return;
     }
@@ -240,7 +244,19 @@ export class TerminalManagerDashboardProvider
         await this.postSessionsToWebview();
         return;
       case "killSession":
-        await this.tmuxSessionManager.killSession(message.sessionId);
+        this.outputChannel?.appendLine(
+          `[TerminalManager] killSession action received, sessionId=${message.sessionId}`,
+        );
+        try {
+          await this.tmuxSessionManager.killSession(message.sessionId);
+          this.outputChannel?.appendLine(
+            `[TerminalManager] killSession succeeded for ${message.sessionId}`,
+          );
+        } catch (error) {
+          this.outputChannel?.appendLine(
+            `[TerminalManager] killSession failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
         await this.postSessionsToWebview();
         return;
       default:
