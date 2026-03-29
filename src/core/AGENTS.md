@@ -32,15 +32,15 @@ core/
 
 ## CONVENTIONS
 
-- Commands는 `commands/`에 domain별로 분리 — lifecycle에는 직접 등록 금지
-- `getCommandDependencies()`가 deps를 getter로 노출 → stale reference 방지
-- TmuxSessionManager 생성은 tmux availability 조건부
+- Commands are split by domain in `commands/` — never register directly in lifecycle
+- `getCommandDependencies()` exposes deps via getter to prevent stale references
+- `TmuxSessionManager` creation is conditional on tmux availability
 
 ## ANTI-PATTERNS
 
-- Provider에서 직접 command register 금지 → 반드시 `commands/` 통과
-- tmux pane 로직을 lifecycle에 넣지 말 것 → `TmuxSessionManager`로 이동 예정
+- Never register commands directly in providers — must go through `commands/`
+- Never put tmux pane logic in lifecycle — delegate to `TmuxSessionManager`
 
 ## KNOWN DEBT
 
-- `tmuxPaneCommands.ts` (412 lines) — pane QuickPick helper DRY화 완료, but lifecycle에 pane logic 잔존 가능
+- `tmuxPaneCommands.ts` (412 lines) — pane QuickPick helper DRY refactor done, but some pane logic may still remain in lifecycle

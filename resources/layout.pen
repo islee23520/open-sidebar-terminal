@@ -1,0 +1,1194 @@
+{
+  "version": "2.9",
+  "children": [
+    {
+      "type": "frame",
+      "id": "bi8Au",
+      "x": 0,
+      "y": 0,
+      "name": "VS Code Shell Overview",
+      "width": 1440,
+      "height": 900,
+      "fill": "#0C0C0C",
+      "stroke": {
+        "thickness": 1,
+        "fill": "#2f2f2f"
+      },
+      "layout": "vertical",
+      "gap": 24,
+      "padding": 24,
+      "children": [
+        {
+          "type": "frame",
+          "id": "Lpnds",
+          "name": "overviewHeader",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 8,
+          "children": [
+            {
+              "type": "text",
+              "id": "ABQSD",
+              "fill": "#FFFFFF",
+              "content": "OpenCode Sidebar TUI // Whole Extension UI Map",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 28,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "CNRqN",
+              "fill": "#8a8a8a",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "How the extension occupies VS Code: activity bar entry, terminal-first sidebar view, Terminal Managers sibling view with session & pane controls, and supporting contribution points.",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 14,
+              "fontWeight": "500"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "AKf6D",
+          "name": "shell",
+          "width": "fill_container",
+          "height": "fill_container",
+          "gap": 24,
+          "children": [
+            {
+              "type": "frame",
+              "id": "Fu7Ox",
+              "name": "activity",
+              "width": 84,
+              "height": "fill_container",
+              "fill": "#080808",
+              "stroke": {
+                "thickness": 1,
+                "fill": "#2f2f2f"
+              },
+              "layout": "vertical",
+              "gap": 16,
+              "padding": [
+                20,
+                12
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "hkaFd",
+                  "fill": "#8a8a8a",
+                  "content": "ACTIVITY\nBAR",
+                  "lineHeight": 1.4,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "frame",
+                  "id": "TenJE",
+                  "name": "openCodeIcon",
+                  "width": 56,
+                  "height": 56,
+                  "fill": "#00FF8810",
+                  "stroke": {
+                    "thickness": 1,
+                    "fill": "#00FF88"
+                  },
+                  "layout": "vertical",
+                  "justifyContent": "center",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "hnCyN",
+                      "fill": "#00FF88",
+                      "content": "OC",
+                      "fontFamily": "Space Grotesk",
+                      "fontSize": 20,
+                      "fontWeight": "700"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "fMd1i",
+                  "fill": "#FFFFFF",
+                  "content": "OPENCODE\nENTRY",
+                  "lineHeight": 1.5,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 11,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "RkixG",
+              "name": "workbench",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 20,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "pv2Ti",
+                  "name": "mainView",
+                  "width": "fill_container",
+                  "height": 560,
+                  "fill": "#0A0A0A",
+                  "stroke": {
+                    "thickness": 1,
+                    "fill": "#2f2f2f"
+                  },
+                  "layout": "vertical",
+                  "gap": 16,
+                  "padding": 18,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "eKMTv",
+                      "fill": "#00FF88",
+                      "content": "PRIMARY SIDEBAR VIEW // OpenCode Terminal Only",
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 13,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "YTbfL",
+                      "name": "terminalSplit",
+                      "width": "fill_container",
+                      "height": "fill_container",
+                      "gap": 14,
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "3Yclk",
+                          "name": "terminalCanvas",
+                          "width": "fill_container",
+                          "height": "fill_container",
+                          "fill": "#080808",
+                          "stroke": {
+                            "thickness": 1,
+                            "fill": "#2f2f2f"
+                          },
+                          "layout": "vertical",
+                          "gap": 12,
+                          "padding": 16,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "4iFUl",
+                              "fill": "#FFFFFF",
+                              "content": "XTERM BODY // Coding AI runtime",
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 13,
+                              "fontWeight": "700"
+                            },
+                            {
+                              "type": "text",
+                              "id": "2gVWu",
+                              "fill": "#8a8a8a",
+                              "content": "> opencode -c\n[HTTP API READY]\n@src/providers/OpenCodeTuiProvider.ts\n$ agent thinking...\n\nNo tmux tabs or controls live in this view. It stays fully dedicated to AI coding output and input.",
+                              "lineHeight": 1.7,
+                              "fontFamily": "JetBrains Mono",
+                              "fontSize": 14,
+                              "fontWeight": "500"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "NZDuF",
+                  "name": "secondaryRow",
+                  "width": "fill_container",
+                  "height": "fill_container",
+                  "gap": 20,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "QB7xg",
+                      "name": "tmuxCard",
+                      "width": "fill_container",
+                      "height": "fill_container",
+                      "fill": "#0A0A0A",
+                      "stroke": {
+                        "thickness": 1,
+                        "fill": "#2f2f2f"
+                      },
+                      "layout": "vertical",
+                      "gap": 10,
+                      "padding": 16,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "CVeer",
+                          "fill": "#00FF88",
+                          "content": "SIBLING VIEW // Terminal Managers, Session & Pane Controls",
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 13,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "text",
+                          "id": "0BkW0",
+                          "fill": "#8a8a8a",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "This sibling view owns session management (create/switch/kill tmux sessions), inline pane controls (split/resize/swap/kill/send-text), and a return-to-workspace banner when the terminal is attached to a different workspace's session.",
+                          "lineHeight": 1.6,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "500"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "N75E5",
+                      "name": "annotationCard",
+                      "width": 360,
+                      "height": "fill_container",
+                      "fill": "#0A0A0A",
+                      "stroke": {
+                        "thickness": 1,
+                        "fill": "#2f2f2f"
+                      },
+                      "layout": "vertical",
+                      "gap": 10,
+                      "padding": 16,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "98zjV",
+                          "fill": "#FFFFFF",
+                          "content": "SECONDARY SURFACES",
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 13,
+                          "fontWeight": "700"
+                        },
+                        {
+                          "type": "text",
+                          "id": "bAejN",
+                          "fill": "#8a8a8a",
+                          "content": "Commands\nKeybindings\nExplorer / editor context menu\nSettings\nHTTP bridge + message contracts",
+                          "lineHeight": 1.8,
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 12,
+                          "fontWeight": "500"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "1lUlp",
+      "x": 1520,
+      "y": 0,
+      "name": "Terminal View Detail",
+      "width": 1280,
+      "height": 900,
+      "fill": "#0C0C0C",
+      "stroke": {
+        "thickness": 1,
+        "fill": "#2f2f2f"
+      },
+      "layout": "vertical",
+      "gap": 20,
+      "padding": 24,
+      "children": [
+        {
+          "type": "frame",
+          "id": "o0qqF",
+          "name": "terminalHeader",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 8,
+          "children": [
+            {
+              "type": "text",
+              "id": "3Y2G7",
+              "fill": "#FFFFFF",
+              "content": "Terminal View Detail",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 28,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "n0IMy",
+              "fill": "#8a8a8a",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "This is the default high-frequency surface for a coding AI tool: the terminal remains a clean output/input canvas while launch and instance controls live next door.",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 14,
+              "fontWeight": "500"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "LhjjZ",
+          "name": "terminalMock",
+          "width": "fill_container",
+          "height": 640,
+          "fill": "#0A0A0A",
+          "stroke": {
+            "thickness": 1,
+            "fill": "#2f2f2f"
+          },
+          "layout": "vertical",
+          "gap": 14,
+          "padding": 16,
+          "children": [
+            {
+              "type": "frame",
+              "id": "ICxNT",
+              "name": "chrome",
+              "width": "fill_container",
+              "height": 48,
+              "fill": "#080808",
+              "stroke": {
+                "thickness": 1,
+                "fill": "#2f2f2f"
+              },
+              "padding": [
+                10,
+                14
+              ],
+              "justifyContent": "space_between",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "Za4fe",
+                  "fill": "#FFFFFF",
+                  "content": "OPENCODE TUI // TERMINAL ONLY",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "1OY5r",
+                  "fill": "#8a8a8a",
+                  "content": "no tmux controls in this surface",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 11,
+                  "fontWeight": "500"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "0S3mX",
+              "name": "bodyRow",
+              "width": "fill_container",
+              "height": "fill_container",
+              "gap": 14,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "VKpG7",
+                  "name": "canvas",
+                  "width": "fill_container",
+                  "height": "fill_container",
+                  "fill": "#080808",
+                  "stroke": {
+                    "thickness": 1,
+                    "fill": "#2f2f2f"
+                  },
+                  "layout": "vertical",
+                  "gap": 12,
+                  "padding": 18,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "StNAK",
+                      "fill": "#8a8a8a",
+                      "content": "> opencode -c\n[http] health OK\n@README.md\n@src/providers/OpenCodeTuiProvider.ts#L241-L388\n\nThis view is intentionally clean: only the coding AI terminal. Tool picking, launch actions, and instance switching all stay in the sibling control surface.",
+                      "lineHeight": 1.8,
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 14,
+                      "fontWeight": "500"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "8yeg6",
+          "name": "callouts",
+          "width": "fill_container",
+          "height": "fill_container",
+          "gap": 20,
+          "children": [
+            {
+              "type": "frame",
+              "id": "dMDQW",
+              "name": "callout1",
+              "width": "fill_container",
+              "height": "fill_container",
+              "fill": "#0A0A0A",
+              "stroke": {
+                "thickness": 1,
+                "fill": "#2f2f2f"
+              },
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 14,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "pe6Vn",
+                  "fill": "#00FF88",
+                      "content": "BECAUSE TMUX CONTROLS LIVE NEXT DOOR",
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 13,
+                      "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "rs2Zb",
+                  "fill": "#8a8a8a",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                          "content": "Session and pane management (create, split, resize, swap, kill, send-text) lives in the Terminal Managers sibling view. The terminal view stays fully dedicated to AI output.",
+                  "lineHeight": 1.6,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "500"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "etn2L",
+              "name": "callout2",
+              "width": "fill_container",
+              "height": "fill_container",
+              "fill": "#0A0A0A",
+              "stroke": {
+                "thickness": 1,
+                "fill": "#2f2f2f"
+              },
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 14,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "FW5wO",
+                  "fill": "#00FF88",
+                      "content": "PANES INLINE",
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 13,
+                      "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "jCVPl",
+                  "fill": "#8a8a8a",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                          "content": "Each session card expands to show its panes with inline actions: switch, send text, split, resize, swap, kill. A return-to-workspace banner appears when the terminal is on a different workspace's session.",
+                  "lineHeight": 1.6,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "500"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "6yJsR",
+      "x": 2860,
+      "y": 0,
+      "name": "Sibling Launch + Runtime View Detail",
+      "width": 1080,
+      "height": 900,
+      "fill": "#0C0C0C",
+      "stroke": {
+        "thickness": 1,
+        "fill": "#2f2f2f"
+      },
+      "layout": "vertical",
+      "gap": 20,
+      "padding": 24,
+      "children": [
+        {
+          "type": "frame",
+          "id": "E9oMk",
+          "name": "header",
+          "width": "fill_container",
+          "layout": "vertical",
+          "gap": 8,
+          "children": [
+            {
+              "type": "text",
+              "id": "QTDsE",
+              "fill": "#FFFFFF",
+              "content": "Terminal Managers Detail",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 28,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "Ol9f4",
+              "fill": "#8a8a8a",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "The Terminal Managers view lists all tmux sessions with expandable pane lists and inline pane actions. A return-to-workspace banner appears when the main terminal is attached to a different workspace session.",
+              "lineHeight": 1.5,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 14,
+              "fontWeight": "500"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "Y9UsG",
+          "name": "panel",
+          "width": "fill_container",
+              "height": 780,
+          "fill": "#0A0A0A",
+          "stroke": {
+            "thickness": 1,
+            "fill": "#2f2f2f"
+          },
+          "layout": "vertical",
+          "gap": 14,
+          "padding": 18,
+          "children": [
+            {
+              "type": "frame",
+              "id": "yX8YO",
+              "name": "panelHeader",
+              "width": "fill_container",
+              "height": 72,
+              "fill": "#080808",
+              "stroke": {
+                "thickness": 1,
+                "fill": "#2f2f2f"
+              },
+              "padding": 12,
+              "justifyContent": "space_between",
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "f2E44",
+                  "name": "left",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "gap": 6,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "gyKuK",
+                      "fill": "#FFFFFF",
+                      "content": "TERMINAL MANAGERS",
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 13,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "text",
+                      "id": "VqUKe",
+                      "fill": "#8a8a8a",
+                      "content": "Workspace: repo-name",
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 12,
+                      "fontWeight": "500"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "HCk5N",
+                  "name": "right",
+                  "gap": 8,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "P5uzZ",
+                      "name": "newBtn",
+                      "fill": "#00FF88",
+                      "stroke": {
+                        "thickness": 1,
+                        "fill": "#00FF88"
+                      },
+                      "padding": [
+                        8,
+                        12
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "ImgfS",
+                          "fill": "#0C0C0C",
+                          "content": "NEW TMUX",
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 11,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "2uLUt",
+                      "fill": "#8a8a8a",
+                      "content": "NEW NATIVE",
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 11,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "text",
+                      "id": "0FEMU",
+                      "fill": "#8a8a8a",
+                      "content": "REFRESH",
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 11,
+                      "fontWeight": "700"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "MEgcM",
+              "name": "toolRegistry",
+              "width": "fill_container",
+              "fill": "#080808",
+              "stroke": {
+                "thickness": 1,
+                "fill": "#2f2f2f"
+              },
+              "layout": "vertical",
+              "gap": 10,
+              "padding": 14,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "YMk3o",
+                  "fill": "#FFFFFF",
+                  "content": "REGISTERED CODING TOOLS",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 13,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "frame",
+                  "id": "XhPB3",
+                  "name": "toolsRow",
+                  "width": "fill_container",
+                  "gap": 8,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "c0vpj",
+                      "name": "selectedTool",
+                      "fill": "#00FF88",
+                      "stroke": {
+                        "thickness": 1,
+                        "fill": "#00FF88"
+                      },
+                      "padding": [
+                        6,
+                        10
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "362Cx",
+                          "fill": "#0C0C0C",
+                          "content": "OPENCODE",
+                          "fontFamily": "JetBrains Mono",
+                          "fontSize": 11,
+                          "fontWeight": "700"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "6aMcN",
+                      "fill": "#8a8a8a",
+                      "content": "[ CLAUDE CODE ]",
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 11,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "text",
+                      "id": "1gqlI",
+                      "fill": "#8a8a8a",
+                      "content": "[ AIDER ]",
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 11,
+                      "fontWeight": "500"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "fN03w",
+                  "fill": "#8a8a8a",
+                  "textGrowth": "fixed-width",
+                  "width": "fill_container",
+                  "content": "Pick a registered coding tool first, then launch either a tmux instance or a native terminal instance.",
+                  "lineHeight": 1.6,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "500"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "edP2s",
+              "name": "tabRow",
+              "width": "fill_container",
+              "height": 48,
+              "fill": "#080808",
+              "stroke": {
+                "thickness": 1,
+                "fill": "#2f2f2f"
+              },
+              "gap": 8,
+              "padding": 8,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "W8AMh",
+                  "name": "activeTab",
+                  "fill": "#00FF88",
+                  "stroke": {
+                    "thickness": 1,
+                    "fill": "#00FF88"
+                  },
+                  "padding": [
+                    6,
+                    10
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "0BrBh",
+                      "fill": "#0C0C0C",
+                      "content": "opencode / tmux-1",
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 11,
+                      "fontWeight": "700"
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "id": "aAooi",
+                  "fill": "#8a8a8a",
+                  "content": "[ claude / native-2 ]",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 11,
+                  "fontWeight": "500"
+                },
+                {
+                  "type": "text",
+                  "id": "p4JsY",
+                  "fill": "#6a6a6a",
+                  "content": "instance tabs live here, not in terminal view",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 11,
+                  "fontWeight": "500"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "HatCR",
+              "name": "sessionList",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 12,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "TUV2k",
+                  "name": "currentCard",
+                  "width": "fill_container",
+                  "fill": "#080808",
+                  "stroke": {
+                    "thickness": 1,
+                    "fill": "#00FF88"
+                  },
+                  "layout": "vertical",
+                  "gap": 8,
+                  "padding": 14,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "wukjQ",
+                      "fill": "#FFFFFF",
+                      "content": "INSTANCE 01 // repo-name\n▶ Panes (3)                  [↕] [↔]\n  ✓ Pane 0: editor        [⌨] [✕]\n    Pane 1: logs          [⌨] [✕]\n    Pane 2: tests         [⌨] [✕]",
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 14,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "text",
+                      "id": "pYk2V",
+                      "fill": "#8a8a8a",
+                      "content": "TMUX  ▶ Panes (3)  [↕] [↔]\ntool: OpenCode\nsession: repo-name\nworkspace: repo-name\nactive pane: Pane 0: editor",
+                      "lineHeight": 1.7,
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 12,
+                      "fontWeight": "500"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "O8yHq",
+                  "name": "availableCard",
+                  "width": "fill_container",
+                  "fill": "#080808",
+                  "stroke": {
+                    "thickness": 1,
+                    "fill": "#2f2f2f"
+                  },
+                  "layout": "vertical",
+                  "gap": 8,
+                  "padding": 14,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "K4yx7",
+                      "fill": "#FFFFFF",
+                      "content": "repo-name-2",
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 14,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "text",
+                      "id": "CEFmV",
+                      "fill": "#8a8a8a",
+                      "content": "AVAILABLE\ntmux session: repo-name-2\nworkspace: repo-name",
+                      "lineHeight": 1.7,
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 12,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "text",
+                      "id": "hdTmv",
+                      "fill": "#00FF88",
+                      "content": "[ SWITCH ]",
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 11,
+                      "fontWeight": "700"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "oV271",
+                  "name": "instanceCard",
+                  "width": "fill_container",
+                  "fill": "#080808",
+                  "stroke": {
+                    "thickness": 1,
+                    "fill": "#2f2f2f"
+                  },
+                  "layout": "vertical",
+                  "gap": 8,
+                  "padding": 14,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "e2BaX",
+                      "fill": "#FFFFFF",
+                      "content": "INSTANCE 02 // scratch-native",
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 14,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "text",
+                      "id": "rB0cu",
+                      "fill": "#8a8a8a",
+                      "content": "NATIVE\ntool: Claude Code\nworkspace: repo-name",
+                      "lineHeight": 1.7,
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 12,
+                      "fontWeight": "500"
+                    },
+                    {
+                      "type": "text",
+                      "id": "q8or1",
+                      "fill": "#00FF88",
+                      "content": "[ FOCUS ]",
+                      "fontFamily": "JetBrains Mono",
+                      "fontSize": 11,
+                      "fontWeight": "700"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "Dp23a",
+          "name": "notes",
+          "width": "fill_container",
+          "height": 195,
+          "fill": "#0A0A0A",
+          "stroke": {
+            "thickness": 1,
+            "fill": "#2f2f2f"
+          },
+          "layout": "vertical",
+          "gap": 8,
+          "padding": 14,
+          "children": [
+            {
+              "type": "text",
+              "id": "oSgEK",
+              "fill": "#00FF88",
+              "content": "DESIGN REASONING",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 13,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "RfFcX",
+              "fill": "#8a8a8a",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "This sibling view is now the only place for launch and runtime management. Users choose a registered coding tool first, then create multiple tmux or native instances while the terminal view stays focused on active AI work.",
+              "lineHeight": 1.6,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "500"
+            },
+            {
+              "type": "frame",
+              "id": "Gw1FT",
+              "name": "runtimeCard",
+              "width": "fill_container",
+              "fill": "#080808",
+              "stroke": {
+                "thickness": 1,
+                "fill": "#2f2f2f"
+              },
+              "layout": "vertical",
+              "gap": 8,
+              "padding": 14,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "tINE2",
+                  "fill": "#FFFFFF",
+                  "content": "RUNTIME / LAUNCH STATE",
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 13,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "3YQtd",
+                  "fill": "#8a8a8a",
+                  "content": "selected tool\nlaunch mode\nport\napi\nauto-context\ninstance mapping",
+                  "lineHeight": 1.7,
+                  "fontFamily": "JetBrains Mono",
+                  "fontSize": 12,
+                  "fontWeight": "500"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "AyEY3",
+      "x": 4000,
+      "y": 0,
+      "name": "Contracts + Annotations",
+      "width": 900,
+      "height": 900,
+      "fill": "#0C0C0C",
+      "stroke": {
+        "thickness": 1,
+        "fill": "#2f2f2f"
+      },
+      "layout": "vertical",
+      "gap": 18,
+      "padding": 24,
+      "children": [
+        {
+          "type": "text",
+          "id": "FErKU",
+          "fill": "#FFFFFF",
+          "content": "Contracts + Annotations",
+          "fontFamily": "JetBrains Mono",
+          "fontSize": 28,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "riIkn",
+          "fill": "#8a8a8a",
+          "textGrowth": "fixed-width",
+          "width": "fill_container",
+          "content": "A reviewer sheet that maps each visible surface to the owning provider or contract so the UI diagram stays tied to code reality.",
+          "lineHeight": 1.5,
+          "fontFamily": "JetBrains Mono",
+          "fontSize": 14,
+          "fontWeight": "500"
+        },
+        {
+          "type": "frame",
+          "id": "oxqQb",
+          "name": "card1",
+          "width": "fill_container",
+          "fill": "#0A0A0A",
+          "stroke": {
+            "thickness": 1,
+            "fill": "#2f2f2f"
+          },
+          "layout": "vertical",
+          "gap": 10,
+          "padding": 16,
+          "children": [
+            {
+              "type": "text",
+              "id": "maKQ0",
+              "fill": "#00FF88",
+              "content": "PRIMARY SURFACES",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 13,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "05wrE",
+              "fill": "#8a8a8a",
+              "content": "Activity Bar entry -> package.json contributions\nTerminal sidebar view -> OpenCodeTuiProvider\nTerminal Managers dashboard -> TmuxSessionsDashboardProvider\nPane actions -> TmuxSessionManager (split/kill/select/resize/swap)",
+              "lineHeight": 1.8,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "500"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "MTDHJ",
+          "name": "card2",
+          "width": "fill_container",
+          "fill": "#0A0A0A",
+          "stroke": {
+            "thickness": 1,
+            "fill": "#2f2f2f"
+          },
+          "layout": "vertical",
+          "gap": 10,
+          "padding": 16,
+          "children": [
+            {
+              "type": "text",
+              "id": "90bnj",
+              "fill": "#FFFFFF",
+              "content": "MESSAGE / STATE CONTRACTS",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 13,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "KVPNW",
+              "fill": "#8a8a8a",
+              "content": "updateTmuxSessions (with panes map) -> dashboard refresh\nswitchPane / splitPane / killPane / sendTextToPane / resizePane / swapPane -> pane actions\nexpandPanes -> toggle pane list in session card",
+              "lineHeight": 1.8,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "500"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "0IhVF",
+          "name": "card3",
+          "width": "fill_container",
+          "height": "fill_container",
+          "fill": "#0A0A0A",
+          "stroke": {
+            "thickness": 1,
+            "fill": "#2f2f2f"
+          },
+          "layout": "vertical",
+          "gap": 10,
+          "padding": 16,
+          "children": [
+            {
+              "type": "text",
+              "id": "xQ4EF",
+              "fill": "#00FF88",
+              "content": "REVIEW ACCEPTANCE",
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 13,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "y43g5",
+              "fill": "#8a8a8a",
+              "textGrowth": "fixed-width",
+              "width": "fill_container",
+              "content": "1. Terminal remains the dominant working region.\n2. Terminal Managers owns all session & pane management.\n3. Panes are inline within session cards (no separate tree view).\n4. Return-to-workspace banner guards cross-workspace sessions.\n5. Command palette fallback with QuickPick when no pane item passed.\n6. Every drawn surface points back to a real source file.",
+              "lineHeight": 1.7,
+              "fontFamily": "JetBrains Mono",
+              "fontSize": 12,
+              "fontWeight": "500"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

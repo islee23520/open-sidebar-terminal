@@ -5,7 +5,7 @@
 
 ## OVERVIEW
 
-VS Code extension — OpenCode TUI를 sidebar에 embed. PTY + HTTP 통신 + tmux session management.
+VS Code extension — embeds OpenCode TUI in the sidebar. PTY + HTTP communication + tmux session management.
 
 ## STRUCTURE
 
@@ -94,18 +94,18 @@ extension.ts → ExtensionLifecycle.activate()
 
 ## ANTI-PATTERNS (THIS PROJECT)
 
-- `src/webview`에서 Node API 사용 금지 (`fs`, `path`, `os` 불가)
-- `InstanceStore` 외부에 instance state 중복 금지
-- Provider에 tmux 로직 넣지 말 것 → `TmuxSessionManager`로
-- 새 message shape 추가 시 반드시 `src/types.ts` 업데이트
-- `OutputChannelService` 직접 `new` 금지 → `getInstance()` 사용
-- Mock 우회 금지 → `src/test/mocks/` 기존 패턴 따를 것
+- No Node APIs in `src/webview` (`fs`, `path`, `os` are not available)
+- No duplicating instance state outside `InstanceStore`
+- No tmux logic in providers — use `TmuxSessionManager`
+- New message shapes must update `src/types.ts`
+- Never `new OutputChannelService()` — use `getInstance()`
+- Never bypass mocks — follow existing patterns in `src/test/mocks/`
 
 ## KNOWN DEBT
 
-- `TmuxSessionsDashboardProvider.ts` (755 lines) — inline HTML, split 필요
-- `PortManager` — provider와 lifecycle에서 각각 생성 (singleton 통합 필요)
-- `webview/dashboard.ts` — legacy orphan, 삭제 검토 필요
+- `TmuxSessionsDashboardProvider.ts` (755 lines) — inline HTML, needs split
+- `PortManager` — created separately in provider and lifecycle (needs singleton consolidation)
+- `webview/dashboard.ts` — legacy orphan, deletion under review
 
 ## BUILD & TEST
 
@@ -119,10 +119,10 @@ npm run build-and-install # package → install to VS Code
 ```
 
 **Coverage:** lines 80%, functions 80%, branches 70%, statements 80%
-**Webview 제외:** `src/webview/**`는 coverage 대상 아님
+**Webview excluded:** `src/webview/**` is excluded from coverage
 
 ## NOTES
 
-- `vitest.config.ts`에서 `vscode`를 `./src/test/mocks/vscode.ts`로 alias
-- `.vscodeignore`가 agent artifacts 전부 제외 (`.sisyphus/`, `.claude/`, `.opencode/` 등)
+- `vitest.config.ts` aliases `vscode` to `./src/test/mocks/vscode.ts`
+- `.vscodeignore` excludes all agent artifacts (`.sisyphus/`, `.claude/`, `.opencode/`, etc.)
 - Publish flow: tag-triggered (`v*`) → VS Code Marketplace + Open VSX dual publish

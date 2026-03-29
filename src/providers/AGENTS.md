@@ -2,7 +2,7 @@
 
 ## OVERVIEW
 
-Extension-host code. VS Code webview views/actions를 backend services와 bridge.
+Extension-host code. Bridges VS Code webview views/actions with backend services.
 
 ## STRUCTURE
 
@@ -39,16 +39,16 @@ providers/
 ## CONVENTIONS
 
 - Providers = extension host process (not browser)
-- Message contracts는 `src/types.ts` 사용 — 임의 shape 금지
-- Provider 역할: routing, orchestration, state bridging only
+- Message contracts use `src/types.ts` — no arbitrary shapes
+- Provider role: routing, orchestration, state bridging only
 
 ## ANTI-PATTERNS
 
-- Browser-only logic (DOM, rendering) 여기에 넣지 말 것 → `src/webview`
-- 새 message shape 임의 생성 금지 → `src/types.ts` 업데이트 필수
-- `ExtensionLifecycle` bypass하여 provider registration/command wiring 금지
+- No browser-only logic (DOM, rendering) here — belongs in `src/webview`
+- No arbitrary message shapes — must update `src/types.ts`
+- Never bypass `ExtensionLifecycle` for provider registration or command wiring
 
 ## KNOWN DEBT
 
-- `TmuxSessionsDashboardProvider.ts` — inline HTML template 분리 예정
-- `webview/dashboard.ts` — legacy orphan, 삭제 검토 필요
+- `TmuxSessionsDashboardProvider.ts` — inline HTML template to be split out
+- `webview/dashboard.ts` — legacy orphan, deletion under review

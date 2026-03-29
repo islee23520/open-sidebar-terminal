@@ -21,26 +21,26 @@ Browser-sandbox code. xterm.js rendering, DOM events, host messaging via `acquir
 | Message handlers                         | ~100         | 7 host message types                                   |
 | Clipboard + image paste                  | ~80          | readText, writeText, image validation                  |
 
-**Extract 예정:** link parser, drag-drop, clipboard를 각각 별도 모듈로
+**Planned extraction:** link parser, drag-drop, and clipboard into separate modules
 
 ## CONVENTIONS
 
-- Browser APIs only — `fs`, `path`, `os` 사용 금지
+- Browser APIs only — no `fs`, `path`, `os`
 - Host communication → discriminated message payloads (`WebviewMessage`, `HostMessage`)
-- Renderer stateless/light 유지 — data shaping은 providers/services에서
-- xterm sizing/refresh → timing-sensitive; `fit()` → `refresh()` 순서 보존
+- Keep renderer stateless/light — data shaping belongs in providers/services
+- xterm sizing/refresh → timing-sensitive; preserve `fit()` → `refresh()` order
 
 ## ANTI-PATTERNS
 
-- Extension-host logic 여기에 넣지 말 것
-- Shared message contracts 외부에 hardcode 금지
-- Ad hoc DOM update로 existing render flow 우회 금지
+- No extension-host logic here
+- No hardcoding shared message contracts outside of `src/types.ts`
+- No ad hoc DOM updates that bypass existing render flow
 
 ## BUILD
 
-Webpack이 2개 webview bundle 생성:
+Webpack produces 2 webview bundles:
 
 - `dist/webview.js` — `src/webview/main.ts` entry (xterm terminal)
 - `dist/dashboard.js` — `src/webview/dashboard.ts` entry (instance dashboard — orphan)
 
-**Note:** `dashboard.js` bundle은 현재 아무 provider에서도 참조하지 않음
+**Note:** The `dashboard.js` bundle is not referenced by any active provider
