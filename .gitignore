@@ -19,3 +19,6 @@ build/
 # test coverage
 coverage/
 nul
+
+# screenshots / test artifacts
+*.png
