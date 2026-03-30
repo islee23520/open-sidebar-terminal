@@ -108,6 +108,7 @@ export type TmuxDashboardHostMessage =
       sessions: TmuxDashboardSessionDto[];
       workspace: string;
       panes?: Record<string, TmuxDashboardPaneDto[]>;
+      showingAll?: boolean;
     }
   | {
       type: "showAiToolSelector";

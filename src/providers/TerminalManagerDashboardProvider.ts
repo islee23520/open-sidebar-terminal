@@ -21,6 +21,7 @@ export class TerminalManagerDashboardProvider
   private view?: vscode.WebviewView;
   private readonly subscriptions: vscode.Disposable[] = [];
   private pollTimer?: ReturnType<typeof setInterval>;
+  private pendingMessage?: TmuxDashboardHostMessage;
   private static readonly POLL_INTERVAL_MS = 3000;
 
   /**
@@ -63,6 +64,7 @@ export class TerminalManagerDashboardProvider
     this.subscriptions.push(
       webviewView.onDidChangeVisibility(() => {
         if (webviewView.visible) {
+          this.flushPendingMessage();
           void this.postSessionsToWebview();
           this.startPolling();
         } else {
@@ -105,9 +107,32 @@ export class TerminalManagerDashboardProvider
         ? path.basename(workspacePath)
         : undefined;
 
-      const filtered = workspaceName
+      this.outputChannel?.appendLine(
+        `[TerminalManager] Discovered ${sessions.length} sessions, workspaceName=${workspaceName}, workspacePath=${workspacePath}`,
+      );
+      for (const s of sessions) {
+        this.outputChannel?.appendLine(
+          `[TerminalManager]   session: id=${s.id}, workspace=${s.workspace}, isActive=${s.isActive}`,
+        );
+      }
+
+      let filtered = workspaceName
         ? sessions.filter((session) => session.workspace === workspaceName)
         : sessions;
+
+      // Fallback: if workspace filter yields 0 but sessions exist, show all
+      let showAllFallback = false;
+      if (filtered.length === 0 && sessions.length > 0 && workspaceName) {
+        filtered = sessions;
+        showAllFallback = true;
+        this.outputChannel?.appendLine(
+          `[TerminalManager] No sessions matched workspace '${workspaceName}', showing all ${sessions.length} sessions`,
+        );
+      }
+
+      this.outputChannel?.appendLine(
+        `[TerminalManager] Filtered to ${filtered.length} sessions${showAllFallback ? " (fallback: all)" : ""}`,
+      );
 
       const panesMap: Record<string, TmuxDashboardPaneDto[]> = {};
       for (const session of filtered) {
@@ -131,21 +156,30 @@ export class TerminalManagerDashboardProvider
         sessions: payload,
         workspace: workspaceName ?? "No workspace",
         panes: panesMap,
+        showingAll: showAllFallback || undefined,
       };
 
-      await this.view.webview.postMessage(message);
+      const posted = this.view.webview.postMessage(message);
+      if (!posted) {
+        this.outputChannel?.appendLine(
+          `[TerminalManager] postMessage returned false (webview not visible), queuing retry`,
+        );
+        this.scheduleRetryPost(message);
+      }
     } catch (error) {
       this.outputChannel?.appendLine(
         `[TerminalManagerDashboardProvider] Failed to load tmux sessions: ${error instanceof Error ? error.message : String(error)}`,
       );
-      const message: TmuxDashboardHostMessage = {
+      const fallbackMessage: TmuxDashboardHostMessage = {
         type: "updateTmuxSessions",
         sessions: [],
         workspace: "Unavailable",
         panes: {},
       };
 
-      await this.view.webview.postMessage(message);
+      if (this.view) {
+        this.view.webview.postMessage(fallbackMessage);
+      }
     }
   }
 
@@ -156,10 +190,6 @@ export class TerminalManagerDashboardProvider
   private async handleWebviewMessage(
     message: TmuxDashboardActionMessage | undefined,
   ): Promise<void> {
-    this.outputChannel?.appendLine(
-      `[TerminalManager] Received webview message: ${JSON.stringify(message)}`,
-    );
-
     if (!message) {
       return;
     }
@@ -244,19 +274,7 @@ export class TerminalManagerDashboardProvider
         await this.postSessionsToWebview();
         return;
       case "killSession":
-        this.outputChannel?.appendLine(
-          `[TerminalManager] killSession action received, sessionId=${message.sessionId}`,
-        );
-        try {
-          await this.tmuxSessionManager.killSession(message.sessionId);
-          this.outputChannel?.appendLine(
-            `[TerminalManager] killSession succeeded for ${message.sessionId}`,
-          );
-        } catch (error) {
-          this.outputChannel?.appendLine(
-            `[TerminalManager] killSession failed: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
+        await this.tmuxSessionManager.killSession(message.sessionId);
         await this.postSessionsToWebview();
         return;
       default:
@@ -615,6 +633,7 @@ export class TerminalManagerDashboardProvider
     const vscode = acquireVsCodeApi();
     const expandedSessions = new Set();
     let lastPayload = { sessions: [], workspace: "", panes: {} };
+    vscode.postMessage({ action: "refresh" });
 
     var aiSelectorVisible = false;
     var aiSelectorFocusedIndex = 0;
@@ -645,7 +664,7 @@ export class TerminalManagerDashboardProvider
         return;
       }
 
-      workspace.textContent = "Workspace: " + (payload.workspace || "-");
+      workspace.textContent = "Workspace: " + (payload.workspace || "-") + (payload.showingAll ? " (all)" : "");
 
       const sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
       const panes = payload.panes || {};
@@ -794,8 +813,8 @@ export class TerminalManagerDashboardProvider
     }
 
     document.addEventListener("click", (event) => {
-      const target = event.target;
-      if (!(target instanceof Element)) {
+      const target = (event.composedPath()?.[0] ?? event.target) as Element | null;
+      if (!target || !(target instanceof Element)) {
         return;
       }
 
@@ -1094,6 +1113,17 @@ export class TerminalManagerDashboardProvider
     if (this.pollTimer !== undefined) {
       clearInterval(this.pollTimer);
       this.pollTimer = undefined;
+    }
+  }
+
+  private scheduleRetryPost(message: TmuxDashboardHostMessage): void {
+    this.pendingMessage = message;
+  }
+
+  private flushPendingMessage(): void {
+    if (this.pendingMessage && this.view) {
+      this.view.webview.postMessage(this.pendingMessage);
+      this.pendingMessage = undefined;
     }
   }
 }

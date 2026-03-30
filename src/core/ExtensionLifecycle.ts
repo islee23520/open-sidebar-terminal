@@ -157,6 +157,11 @@ export class ExtensionLifecycle {
         const tmuxDashboardProvider = vscode.window.registerWebviewViewProvider(
           TerminalManagerDashboardProvider.viewType,
           this.terminalManagerDashboardProvider,
+          {
+            webviewOptions: {
+              retainContextWhenHidden: true,
+            },
+          },
         );
         context.subscriptions.push(tmuxDashboardProvider);
       }
