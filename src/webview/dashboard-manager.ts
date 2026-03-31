@@ -146,10 +146,10 @@ function render(payload: DashboardPayload): void {
               const panesHtml = w.panes
                 .map((p) => {
                   const pActive = p.isActive ? " active" : "";
-                  return `<div class="pane-item${pActive}" data-session-id="${escapeHtml(s.id)}" data-pane-id="${escapeHtml(p.paneId)}"><span class="pane-name">${detectToolIcon(p.currentCommand)}${p.title || "Pane " + p.index}</span></div>`;
+                  return `<div class="pane-item${pActive}" data-session-id="${escapeHtml(s.id)}" data-pane-id="${escapeHtml(p.paneId)}"><span class="pane-name">${detectToolIcon(p.currentCommand)}${p.title || "Pane " + p.index}</span><button class="danger pane-kill-btn" data-action="killPane" data-session-id="${escapeHtml(s.id)}" data-pane-id="${escapeHtml(p.paneId)}" title="Kill Pane">✕</button></div>`;
                 })
                 .join("");
-              return `<div class="window-card${wActive}"><div class="window-row"><span class="window-name">${escapeHtml(w.name)}</span><span class="window-index">${w.index}</span></div><div class="pane-list">${panesHtml}</div></div>`;
+              return `<div class="window-card${wActive}"><div class="window-row"><span class="window-name">${escapeHtml(w.name)}</span><span class="window-index">${w.index}</span><button class="danger pane-kill-btn" data-action="killWindow" data-session-id="${escapeHtml(s.id)}" data-window-id="${escapeHtml(w.windowId)}" title="Kill Window">✕</button></div><div class="pane-list">${panesHtml}</div></div>`;
             })
             .join("")}</div>`
         : "";
@@ -170,6 +170,7 @@ function render(payload: DashboardPayload): void {
         `<div class="pane-header" data-session-id="${escapeHtml(s.id)}">`,
         `<span>${isExpanded ? "▼" : "▶"} ${windowCount} window${windowCount !== 1 ? "s" : ""}, ${totalPaneCount} pane${totalPaneCount !== 1 ? "s" : ""}</span>`,
         "<div>",
+        `<button class="pane-split-btn" data-action="createWindow" data-session-id="${escapeHtml(s.id)}" title="New Window">+Win</button>`,
         `<button class="pane-split-btn" data-action="splitH" data-session-id="${escapeHtml(s.id)}" title="Split Horizontal">↕</button>`,
         `<button class="pane-split-btn" data-action="splitV" data-session-id="${escapeHtml(s.id)}" title="Split Vertical">↔</button>`,
         "</div>",
@@ -288,6 +289,8 @@ document.addEventListener("click", (event) => {
     target.closest(".session-card") &&
     !target.closest(".pane-header") &&
     !target.closest('[data-action="killSession"]') &&
+    !target.closest('[data-action="killWindow"]') &&
+    !target.closest('[data-action="killPane"]') &&
     !target.closest(".pane-split-btn")
   ) {
     const card = target.closest(".session-card");
@@ -306,6 +309,10 @@ document.addEventListener("click", (event) => {
       return;
     }
     const sessionId = button.dataset.sessionId;
+    if (button.dataset.action === "createWindow") {
+      vscode.postMessage({ action: "createWindow", sessionId });
+      return;
+    }
     const direction = button.dataset.action === "splitH" ? "h" : "v";
     vscode.postMessage({ action: "splitPane", sessionId, direction });
     return;
@@ -325,7 +332,34 @@ document.addEventListener("click", (event) => {
     return;
   }
 
-  if (target.closest(".pane-item")) {
+  if (target.closest('[data-action="killWindow"]')) {
+    const button = target.closest('[data-action="killWindow"]');
+    if (button instanceof HTMLButtonElement) {
+      const sessionId = button.dataset.sessionId;
+      const windowId = button.dataset.windowId;
+      if (sessionId && windowId) {
+        vscode.postMessage({ action: "killWindow", sessionId, windowId });
+      }
+    }
+    return;
+  }
+
+  if (target.closest('[data-action="killPane"]')) {
+    const button = target.closest('[data-action="killPane"]');
+    if (button instanceof HTMLButtonElement) {
+      const sessionId = button.dataset.sessionId;
+      const paneId = button.dataset.paneId;
+      if (sessionId && paneId) {
+        vscode.postMessage({ action: "killPane", sessionId, paneId });
+      }
+    }
+    return;
+  }
+
+  if (
+    target.closest(".pane-item") &&
+    !target.closest('[data-action="killPane"]')
+  ) {
     const item = target.closest(".pane-item");
     if (item instanceof HTMLElement) {
       vscode.postMessage({

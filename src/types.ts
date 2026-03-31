@@ -100,6 +100,8 @@ export type TmuxDashboardActionMessage =
   | { action: "switchNativeShell" }
   | { action: "activate"; sessionId: string }
   | { action: "expandPanes"; sessionId: string }
+  | { action: "createWindow"; sessionId: string }
+  | { action: "killWindow"; sessionId: string; windowId: string }
   | { action: "killSession"; sessionId: string }
   | { action: "switchPane"; sessionId: string; paneId: string }
   | {

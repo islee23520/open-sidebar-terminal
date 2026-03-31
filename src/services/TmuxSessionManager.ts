@@ -232,6 +232,30 @@ export class TmuxSessionManager {
     }
   }
 
+  public async createWindow(sessionId: string): Promise<void> {
+    try {
+      await this.runTmux(["new-window", "-t", sessionId]);
+      this._onPaneChanged.fire();
+    } catch (error) {
+      if (this.isTmuxUnavailable(error)) {
+        throw new TmuxUnavailableError();
+      }
+      throw error;
+    }
+  }
+
+  public async killWindow(windowId: string): Promise<void> {
+    try {
+      await this.runTmux(["kill-window", "-t", windowId]);
+      this._onPaneChanged.fire();
+    } catch (error) {
+      if (this.isTmuxUnavailable(error)) {
+        throw new TmuxUnavailableError();
+      }
+      throw error;
+    }
+  }
+
   public async splitPane(
     targetPaneId: string,
     direction: "h" | "v",
@@ -253,10 +277,18 @@ export class TmuxSessionManager {
       if (options?.command) {
         args.push(options.command);
       }
+      console.log(
+        `[DIAG:splitPane] targetPaneId="${targetPaneId}" direction="${direction}" command="${options?.command ?? "none"}" args=${JSON.stringify(args)}`,
+      );
       const stdout = await this.runTmux(args);
+      const newPaneId = stdout.trim();
+      console.log(`[DIAG:splitPane] SUCCESS newPaneId="${newPaneId}"`);
       this._onPaneChanged.fire();
-      return stdout.trim();
+      return newPaneId;
     } catch (error) {
+      console.log(
+        `[DIAG:splitPane] FAILED targetPaneId="${targetPaneId}" error=${error instanceof Error ? error.message : String(error)}`,
+      );
       if (this.isTmuxUnavailable(error)) {
         throw new TmuxUnavailableError();
       }
@@ -266,9 +298,14 @@ export class TmuxSessionManager {
 
   public async killPane(paneId: string): Promise<void> {
     try {
+      console.log(`[DIAG:killPane] paneId="${paneId}"`);
       await this.runTmux(["kill-pane", "-t", paneId]);
+      console.log(`[DIAG:killPane] SUCCESS paneId="${paneId}"`);
       this._onPaneChanged.fire();
     } catch (error) {
+      console.log(
+        `[DIAG:killPane] FAILED paneId="${paneId}" error=${error instanceof Error ? error.message : String(error)}`,
+      );
       if (this.isTmuxUnavailable(error)) {
         throw new TmuxUnavailableError();
       }
@@ -278,9 +315,14 @@ export class TmuxSessionManager {
 
   public async selectPane(paneId: string): Promise<void> {
     try {
+      console.log(`[DIAG:selectPane] paneId="${paneId}"`);
       await this.runTmux(["select-pane", "-t", paneId]);
+      console.log(`[DIAG:selectPane] SUCCESS paneId="${paneId}"`);
       this._onPaneChanged.fire();
     } catch (error) {
+      console.log(
+        `[DIAG:selectPane] FAILED paneId="${paneId}" error=${error instanceof Error ? error.message : String(error)}`,
+      );
       if (this.isTmuxUnavailable(error)) {
         throw new TmuxUnavailableError();
       }
@@ -325,8 +367,14 @@ export class TmuxSessionManager {
 
   public async sendTextToPane(paneId: string, text: string): Promise<void> {
     try {
+      const preview = text.length > 80 ? text.slice(0, 80) + "..." : text;
+      console.log(`[DIAG:sendTextToPane] paneId="${paneId}" text="${preview}"`);
       await this.runTmux(["send-keys", "-t", paneId, text, "C-m"]);
+      console.log(`[DIAG:sendTextToPane] SUCCESS paneId="${paneId}"`);
     } catch (error) {
+      console.log(
+        `[DIAG:sendTextToPane] FAILED paneId="${paneId}" error=${error instanceof Error ? error.message : String(error)}`,
+      );
       if (this.isTmuxUnavailable(error)) {
         throw new TmuxUnavailableError();
       }

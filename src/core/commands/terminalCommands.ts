@@ -14,6 +14,7 @@ export interface TerminalCommandDependencies {
   outputChannel: OutputChannelService | undefined;
   getActiveTerminalId: () => string;
   sendTerminalCwd: () => void;
+  sendPrompt: (prompt: string) => Promise<void>;
 }
 
 function focusSidebarIfConfigured(
@@ -44,10 +45,11 @@ export function registerTerminalCommands(
       const editor = vscode.window.activeTextEditor;
       if (editor && !editor.selection.isEmpty) {
         const selectedText = editor.document.getText(editor.selection);
-        deps.terminalManager?.writeToTerminal(
-          deps.getActiveTerminalId(),
-          selectedText + "\n",
+        const terminalId = deps.getActiveTerminalId();
+        deps.outputChannel?.info(
+          `[DIAG:sendToTerminal] terminalId="${terminalId}" textLength=${selectedText.length}`,
         );
+        void deps.sendPrompt(selectedText + "\n");
         focusSidebarIfConfigured(deps.provider);
       }
     },
@@ -60,12 +62,16 @@ export function registerTerminalCommands(
       if (editor && deps.contextSharingService) {
         const fileRef =
           deps.contextSharingService.formatFileRefWithLineNumbers(editor);
-        deps.terminalManager?.writeToTerminal(
-          deps.getActiveTerminalId(),
-          fileRef + " ",
+        const terminalId = deps.getActiveTerminalId();
+        deps.outputChannel?.info(
+          `[DIAG:sendAtMention] terminalId="${terminalId}" fileRef="${fileRef}"`,
         );
+        void deps.sendPrompt(fileRef + " ");
         focusSidebarIfConfigured(deps.provider);
       } else {
+        deps.outputChannel?.warn(
+          `[DIAG:sendAtMention] skipped — editor=${!!editor} contextSharingService=${!!deps.contextSharingService}`,
+        );
         deps.sendTerminalCwd();
       }
     },
@@ -92,10 +98,11 @@ export function registerTerminalCommands(
 
       const openFiles = fileRefs.join(" ");
       if (openFiles) {
-        deps.terminalManager?.writeToTerminal(
-          deps.getActiveTerminalId(),
-          openFiles + " ",
+        const terminalId = deps.getActiveTerminalId();
+        deps.outputChannel?.info(
+          `[DIAG:sendAllOpenFiles] terminalId="${terminalId}" fileCount=${fileRefs.length} refs="${openFiles}"`,
         );
+        void deps.sendPrompt(openFiles + " ");
         focusSidebarIfConfigured(deps.provider);
       }
     },
@@ -139,10 +146,11 @@ export function registerTerminalCommands(
         );
         const allRefs = fileRefs.join(" ");
 
-        deps.terminalManager?.writeToTerminal(
-          deps.getActiveTerminalId(),
-          allRefs + " ",
+        const terminalId = deps.getActiveTerminalId();
+        deps.outputChannel?.info(
+          `[DIAG:sendFileToTerminal] terminalId="${terminalId}" fileCount=${uniqueUris.length} refs="${allRefs}"`,
         );
+        void deps.sendPrompt(allRefs + " ");
 
         focusSidebarIfConfigured(deps.provider);
         fileSendAccumulator = [];

@@ -452,11 +452,7 @@ describe("TerminalProvider", () => {
       "repo-a-3",
       "/workspaces/repo-a",
     );
-    const lastCall =
-      createTerminalSpy.mock.calls[createTerminalSpy.mock.calls.length - 1];
-    expect(lastCall?.[1]).toBe(
-      "tmux attach-session -t repo-a-3 \\; set-option -u status off",
-    );
+    expect(createTerminalSpy).not.toHaveBeenCalled();
   });
 
   it("switches active instances without respawning when a terminal already exists", async () => {

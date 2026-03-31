@@ -230,6 +230,24 @@ describe("TerminalManager", () => {
         manager.killTerminal("non-existent");
       }).not.toThrow();
     });
+
+    it("should ignore stale onExit from killed process when terminal is recreated with same id", () => {
+      const exitHandler = vi.fn();
+      manager.onExit(exitHandler);
+
+      const oldTerminal = manager.createTerminal("test-id");
+      const oldProcess = oldTerminal.process;
+
+      manager.killTerminal("test-id");
+
+      const newTerminal = manager.createTerminal("test-id");
+      expect(manager.getTerminal("test-id")).toBe(newTerminal);
+
+      (oldProcess as unknown as nodePtyTypes.MockPtyProcess)._simulateExit(0);
+
+      expect(exitHandler).not.toHaveBeenCalled();
+      expect(manager.getTerminal("test-id")).toBe(newTerminal);
+    });
   });
 
   describe("dispose", () => {

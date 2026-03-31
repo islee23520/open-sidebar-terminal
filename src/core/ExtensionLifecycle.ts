@@ -50,13 +50,25 @@ export class ExtensionLifecycle {
     try {
       const active = this.instanceStore?.getActive();
       if (active?.runtime.terminalKey) {
+        this.outputChannelService?.info(
+          `[DIAG:getActiveTerminalId] resolved terminalKey="${active.runtime.terminalKey}" for instance="${active.config.id}" tmuxSession="${active.runtime.tmuxSessionId}"`,
+        );
         return active.runtime.terminalKey;
       }
       if (active) {
+        this.outputChannelService?.warn(
+          `[DIAG:getActiveTerminalId] NO terminalKey for instance="${active.config.id}", falling back to config.id="${active.config.id}"`,
+        );
         return active.config.id;
       }
+      this.outputChannelService?.warn(
+        `[DIAG:getActiveTerminalId] NO active instance, falling back to TERMINAL_ID="${ExtensionLifecycle.TERMINAL_ID}"`,
+      );
       return ExtensionLifecycle.TERMINAL_ID;
-    } catch {
+    } catch (err) {
+      this.outputChannelService?.error(
+        `[DIAG:getActiveTerminalId] ERROR: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return ExtensionLifecycle.TERMINAL_ID;
     }
   }
@@ -131,6 +143,7 @@ export class ExtensionLifecycle {
         context,
         this.terminalManager,
         this.captureManager,
+        this.portManager,
         this.instanceStore,
         this.tmuxSessionManager,
       );
@@ -229,6 +242,8 @@ export class ExtensionLifecycle {
       },
       getActiveTerminalId: () => this.getActiveTerminalId(),
       sendTerminalCwd: () => this.sendTerminalCwd(),
+      sendPrompt: (prompt: string) =>
+        this.tuiProvider?.sendPrompt(prompt) ?? Promise.resolve(),
       resolveActiveTmuxSessionId: () => this.resolveActiveTmuxSessionId(),
     };
   }

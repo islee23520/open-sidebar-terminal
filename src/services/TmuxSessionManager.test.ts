@@ -335,6 +335,46 @@ describe("TmuxSessionManager", () => {
       ]);
     });
 
+    it("creates a new window in a session", async () => {
+      mockExecSequence([{ stdout: "" }]);
+      await manager.createWindow("test-session");
+      expect(vi.mocked(execFile).mock.calls[0]?.[1]).toEqual([
+        "new-window",
+        "-t",
+        "test-session",
+      ]);
+    });
+
+    it("throws TmuxUnavailableError for createWindow when tmux missing", async () => {
+      const err = Object.assign(new Error("spawn tmux ENOENT"), {
+        code: "ENOENT",
+      });
+      mockExecSequence([{ error: err }]);
+      await expect(manager.createWindow("test-session")).rejects.toBeInstanceOf(
+        TmuxUnavailableError,
+      );
+    });
+
+    it("kills a window", async () => {
+      mockExecSequence([{ stdout: "" }]);
+      await manager.killWindow("@0");
+      expect(vi.mocked(execFile).mock.calls[0]?.[1]).toEqual([
+        "kill-window",
+        "-t",
+        "@0",
+      ]);
+    });
+
+    it("throws TmuxUnavailableError for killWindow when tmux missing", async () => {
+      const err = Object.assign(new Error("spawn tmux ENOENT"), {
+        code: "ENOENT",
+      });
+      mockExecSequence([{ error: err }]);
+      await expect(manager.killWindow("@0")).rejects.toBeInstanceOf(
+        TmuxUnavailableError,
+      );
+    });
+
     it("throws TmuxUnavailableError for splitPane when tmux missing", async () => {
       const err = Object.assign(new Error("spawn tmux ENOENT"), {
         code: "ENOENT",

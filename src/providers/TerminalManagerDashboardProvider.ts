@@ -264,6 +264,14 @@ export class TerminalManagerDashboardProvider
       case "expandPanes":
         await this.postSessionsToWebview();
         return;
+      case "createWindow":
+        await this.tmuxSessionManager.createWindow(message.sessionId);
+        await this.postSessionsToWebview();
+        return;
+      case "killWindow":
+        await this.tmuxSessionManager.killWindow(message.windowId);
+        await this.postSessionsToWebview();
+        return;
       case "switchPane":
         await this.tmuxSessionManager.selectPane(message.paneId);
         await this.postSessionsToWebview();
@@ -567,6 +575,10 @@ export class TerminalManagerDashboardProvider
     .pane-item.active .pane-name::before {
       content: "\\2713 ";
       color: var(--vscode-terminal-ansiGreen, #4ec9b0);
+    }
+    .pane-kill-btn {
+      margin-left: auto;
+      flex-shrink: 0;
     }
     .pane-tool-badge {
       display: inline-block;

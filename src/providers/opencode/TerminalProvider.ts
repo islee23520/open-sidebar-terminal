@@ -17,7 +17,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "opencodeTui";
 
   private _view?: vscode.WebviewView;
-  private readonly portManager: PortManager;
   private readonly contextSharingService: ContextSharingService;
   private readonly logger = OutputChannelService.getInstance();
   private readonly sessionRuntime: OpenCodeSessionRuntime;
@@ -27,10 +26,10 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     private readonly context: vscode.ExtensionContext,
     private readonly terminalManager: TerminalManager,
     private readonly captureManager: OutputCaptureManager,
+    private readonly portManager: PortManager,
     private readonly instanceStore?: InstanceStore,
     private readonly tmuxSessionManager?: TmuxSessionManager,
   ) {
-    this.portManager = new PortManager();
     this.contextSharingService = new ContextSharingService();
 
     this.sessionRuntime = new OpenCodeSessionRuntime(
@@ -199,6 +198,22 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 
   public async killTmuxSession(sessionId: string): Promise<void> {
     await this.sessionRuntime.killTmuxSession(sessionId);
+  }
+
+  public async sendPrompt(prompt: string): Promise<void> {
+    const apiClient = this.sessionRuntime.getApiClient();
+    if (apiClient && this.sessionRuntime.isHttpAvailable()) {
+      try {
+        await apiClient.appendPrompt(prompt);
+        return;
+      } catch (error) {
+        this.logger.warn(
+          `HTTP API send failed, falling back to terminal write: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+
+    this.terminalManager.writeToTerminal(this.activeInstanceId, prompt);
   }
 
   private handleMessage(message: unknown): void {

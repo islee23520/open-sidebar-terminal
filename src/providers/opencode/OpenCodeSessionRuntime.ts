@@ -114,6 +114,7 @@ export class OpenCodeSessionRuntime {
     if (existingTerminal && !forceRestart) {
       this.isStarted = true;
       this.reconnectListeners();
+      this.syncActiveInstance(instanceId);
 
       const config = vscode.workspace.getConfiguration("opencodeTui");
       const enableHttpApi = config.get<boolean>("enableHttpApi", true);
@@ -144,6 +145,7 @@ export class OpenCodeSessionRuntime {
     }
 
     await this.callbacks.requestStartOpenCode();
+    this.syncActiveInstance(instanceId);
   }
 
   public async startOpenCode(): Promise<void> {
@@ -587,7 +589,6 @@ export class OpenCodeSessionRuntime {
       }
 
       await this.tmuxSessionManager.createSession(candidate, workspacePath);
-      await this.switchToTmuxSession(candidate);
       return candidate;
     } catch (error) {
       this.logger.error(
@@ -657,6 +658,18 @@ export class OpenCodeSessionRuntime {
         this.callbacks.onActiveInstanceChanged(id);
       },
     );
+  }
+
+  private syncActiveInstance(instanceId: InstanceId): void {
+    if (!this.instanceStore) {
+      return;
+    }
+    try {
+      const currentActive = this.instanceStore.getActive().config.id;
+      if (currentActive !== instanceId) {
+        this.instanceStore.setActive(instanceId);
+      }
+    } catch {}
   }
 
   public dispose(): void {
