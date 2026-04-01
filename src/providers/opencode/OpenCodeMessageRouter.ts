@@ -15,7 +15,7 @@ export interface OpenCodeMessageRouterProviderBridge {
   startOpenCode(): Promise<void>;
   switchToTmuxSession(sessionId: string): Promise<void>;
   killTmuxSession(sessionId: string): Promise<void>;
-  createTmuxSession(): Promise<void>;
+  createTmuxSession(): Promise<string | undefined>;
   switchToNativeShell(): Promise<void>;
   pasteText(text: string): void;
   getActiveInstanceId(): InstanceId;

@@ -128,6 +128,8 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
       this.sessionRuntime.reconnectListeners();
     }
 
+    this.postTerminalConfig();
+
     const config = vscode.workspace.getConfiguration("opencodeTui");
     if (config.get<boolean>("autoStartOnOpen", true)) {
       if (webviewView.visible) {
@@ -138,6 +140,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
         const visibilityListener = webviewView.onDidChangeVisibility(() => {
           if (webviewView.visible) {
             this.postWebviewMessage({ type: "webviewVisible" });
+            this.postTerminalConfig();
             if (!this.isStarted()) {
               void this.startOpenCode();
               visibilityListener.dispose();
@@ -192,8 +195,8 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     await this.sessionRuntime.switchToNativeShell();
   }
 
-  public async createTmuxSession(): Promise<void> {
-    await this.sessionRuntime.createTmuxSession();
+  public async createTmuxSession(): Promise<string | undefined> {
+    return this.sessionRuntime.createTmuxSession();
   }
 
   public async killTmuxSession(sessionId: string): Promise<void> {
@@ -244,12 +247,39 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
     this._view?.webview.postMessage(message);
   }
 
+  private postTerminalConfig(): void {
+    const config = vscode.workspace.getConfiguration("opencodeTui");
+    this.postWebviewMessage({
+      type: "terminalConfig",
+      fontSize: config.get<number>("fontSize", 14),
+      fontFamily: config.get<string>(
+        "fontFamily",
+        "'JetBrainsMono Nerd Font', 'FiraCode Nerd Font', 'CascadiaCode NF', Menlo, monospace",
+      ),
+      cursorBlink: config.get<boolean>("cursorBlink", true),
+      cursorStyle: config.get<"block" | "underline" | "bar">(
+        "cursorStyle",
+        "block",
+      ),
+      scrollback: config.get<number>("scrollback", 10000),
+    });
+  }
+
   private getHtmlForWebview(webview: vscode.Webview): string {
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, "dist", "webview.js"),
     );
 
     const nonce = this.getNonce();
+
+    const config = vscode.workspace.getConfiguration("opencodeTui");
+    const fontSize = config.get<number>("fontSize", 14);
+    const fontFamily = config.get<string>("fontFamily", "monospace");
+    const cursorBlink = config.get<boolean>("cursorBlink", true);
+    const cursorStyle = config.get<string>("cursorStyle", "block");
+    const scrollback = config.get<number>("scrollback", 10000);
+
+    const escapedFontFamily = fontFamily.replace(/"/g, "&quot;");
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -273,10 +303,23 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
       height: 100%;
       min-width: 0;
     }
+    .font-preload {
+      position: absolute;
+      left: -9999px;
+      visibility: hidden;
+      font-family: ${escapedFontFamily};
+    }
   </style>
 </head>
 <body>
-  <div id="terminal-container"></div>
+  <span class="font-preload" aria-hidden="true">ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;':\",./<>?\`~</span>
+  <div id="terminal-container"
+    data-font-size="${fontSize}"
+    data-font-family="${escapedFontFamily}"
+    data-cursor-blink="${cursorBlink}"
+    data-cursor-style="${cursorStyle}"
+    data-scrollback="${scrollback}">
+  </div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

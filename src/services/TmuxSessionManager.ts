@@ -244,6 +244,30 @@ export class TmuxSessionManager {
     }
   }
 
+  public async nextWindow(sessionId: string): Promise<void> {
+    try {
+      await this.runTmux(["next-window", "-t", sessionId]);
+      this._onPaneChanged.fire();
+    } catch (error) {
+      if (this.isTmuxUnavailable(error)) {
+        throw new TmuxUnavailableError();
+      }
+      throw error;
+    }
+  }
+
+  public async prevWindow(sessionId: string): Promise<void> {
+    try {
+      await this.runTmux(["previous-window", "-t", sessionId]);
+      this._onPaneChanged.fire();
+    } catch (error) {
+      if (this.isTmuxUnavailable(error)) {
+        throw new TmuxUnavailableError();
+      }
+      throw error;
+    }
+  }
+
   public async killWindow(windowId: string): Promise<void> {
     try {
       await this.runTmux(["kill-window", "-t", windowId]);
@@ -306,6 +330,18 @@ export class TmuxSessionManager {
       console.log(
         `[DIAG:killPane] FAILED paneId="${paneId}" error=${error instanceof Error ? error.message : String(error)}`,
       );
+      if (this.isTmuxUnavailable(error)) {
+        throw new TmuxUnavailableError();
+      }
+      throw error;
+    }
+  }
+
+  public async selectWindow(windowId: string): Promise<void> {
+    try {
+      await this.runTmux(["select-window", "-t", windowId]);
+      this._onPaneChanged.fire();
+    } catch (error) {
       if (this.isTmuxUnavailable(error)) {
         throw new TmuxUnavailableError();
       }

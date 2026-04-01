@@ -46,13 +46,15 @@
           "type": "webview",
           "icon": "$(terminal)",
           "contextualTitle": "OpenCode TUI"
-        },
+        }
+      ],
+      "explorer": [
         {
           "id": "opencodeTui.terminalManager",
-          "name": "Terminal Managers",
+          "name": "OpenCode Sidebar TUI",
           "type": "webview",
           "icon": "$(server)",
-          "contextualTitle": "Terminal Managers"
+          "contextualTitle": "OpenCode Sidebar TUI"
         }
       ]
     },
@@ -262,8 +264,8 @@
         },
         "opencodeTui.fontFamily": {
           "type": "string",
-          "default": "monospace",
-          "description": "Terminal font family"
+          "default": "'JetBrainsMono Nerd Font', 'FiraCode Nerd Font', 'CascadiaCode NF', Menlo, monospace",
+          "description": "Terminal font family (Nerd Font recommended for Powerline/glyph support)"
         },
         "opencodeTui.cursorBlink": {
           "type": "boolean",
@@ -432,6 +434,26 @@
           "type": "string",
           "default": "opencode",
           "description": "Name of the default AI tool to launch when creating a new tmux session"
+        },
+        "opencodeTui.nativeShellDefault": {
+          "type": "string",
+          "default": "",
+          "enum": [
+            "",
+            "opencode",
+            "shell"
+          ],
+          "description": "Default behavior when switching to native shell. Empty = ask every time, 'opencode' = always launch OpenCode, 'shell' = always launch default shell (zsh)"
+        },
+        "opencodeTui.tmuxSessionDefault": {
+          "type": "string",
+          "default": "",
+          "enum": [
+            "",
+            "opencode",
+            "shell"
+          ],
+          "description": "Default behavior when creating a new tmux session. Empty = ask every time, 'opencode' = always launch OpenCode, 'shell' = always launch default shell (zsh)"
         }
       }
     }

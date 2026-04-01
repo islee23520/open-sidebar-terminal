@@ -88,30 +88,48 @@ async function handlePasteWithImageSupport(): Promise<void> {
   vscode.postMessage({ type: "triggerPaste" });
 }
 
+function readTerminalConfig(element: HTMLElement) {
+  return {
+    fontSize: parseInt(element.dataset.fontSize || "14", 10),
+    fontFamily:
+      element.dataset.fontFamily ||
+      "'JetBrainsMono Nerd Font', 'FiraCode Nerd Font', 'CascadiaCode NF', Menlo, monospace",
+    cursorBlink: element.dataset.cursorBlink !== "false",
+    cursorStyle: (element.dataset.cursorStyle || "block") as
+      | "block"
+      | "underline"
+      | "bar",
+    scrollback: parseInt(element.dataset.scrollback || "10000", 10),
+  };
+}
+
 function initTerminal(): void {
   const container = document.getElementById("terminal-container");
   if (!container) return;
 
+  const config = readTerminalConfig(container);
+
   container.addEventListener("contextmenu", (event) => {
     event.preventDefault();
-  });
-
-  container.addEventListener("mousedown", (event) => {
-    if (event.button === 2) {
-      event.preventDefault();
-      event.stopPropagation();
+    const selection = terminal?.getSelection();
+    if (selection && selection.length > 0) {
+      copySelectionToClipboard(selection);
+    } else {
+      vscode.postMessage({ type: "triggerPaste" });
     }
   });
 
+
   terminal = new Terminal({
-    cursorBlink: true,
-    fontSize: 14,
-    fontFamily: "monospace",
+    cursorBlink: config.cursorBlink,
+    cursorStyle: config.cursorStyle,
+    fontSize: config.fontSize,
+    fontFamily: config.fontFamily,
     theme: {
       background: "#1e1e1e",
       foreground: "#cccccc",
     },
-    scrollback: 10000,
+    scrollback: config.scrollback,
   });
 
   terminal.attachCustomKeyEventHandler((event: KeyboardEvent): boolean => {
@@ -277,6 +295,14 @@ function initTerminal(): void {
   });
 
   terminal.open(container);
+
+  // Copy-on-select: fires after xterm.js finalizes the selection
+  terminal.onSelectionChange(() => {
+    const selection = terminal?.getSelection();
+    if (selection && selection.length > 0) {
+      copySelectionToClipboard(selection);
+    }
+  });
 
   try {
     const webglAddon = new WebglAddon();
@@ -681,6 +707,18 @@ window.addEventListener("message", (event) => {
     case "platformInfo":
       currentPlatform = message.platform;
       break;
+    case "terminalConfig":
+      if (terminal) {
+        terminal.options.fontSize = message.fontSize;
+        terminal.options.fontFamily = message.fontFamily;
+        terminal.options.cursorBlink = message.cursorBlink;
+        terminal.options.cursorStyle = message.cursorStyle;
+        if (fitAddon) {
+          fitAddon.fit();
+        }
+        scheduleRefresh();
+      }
+      break;
     case "clipboardContent":
       if (message.text && terminal) {
         terminal.paste(message.text);
@@ -689,10 +727,19 @@ window.addEventListener("message", (event) => {
   }
 });
 
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", () => {
+const boot = () => {
+  // Wait for fonts to load before initializing xterm.js so the WebGL
+  // texture atlas is built with the correct Nerd Font glyphs.
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => initTerminal());
+  } else {
+    // Fallback for environments without document.fonts support
     initTerminal();
-  });
+  }
+};
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", boot);
 } else {
-  initTerminal();
+  boot();
 }

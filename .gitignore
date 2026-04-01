@@ -22,3 +22,4 @@ nul
 
 # screenshots / test artifacts
 *.png
+.remember/

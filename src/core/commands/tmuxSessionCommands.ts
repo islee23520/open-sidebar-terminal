@@ -169,7 +169,7 @@ export function registerTmuxSessionCommands(
         return;
       }
 
-      await deps.provider.createTmuxSession();
+      return deps.provider.createTmuxSession();
     },
   );
 

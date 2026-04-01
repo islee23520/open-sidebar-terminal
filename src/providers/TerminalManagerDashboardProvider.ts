@@ -268,8 +268,23 @@ export class TerminalManagerDashboardProvider
         await this.tmuxSessionManager.createWindow(message.sessionId);
         await this.postSessionsToWebview();
         return;
+      case "nextWindow":
+        await this.tmuxSessionManager.nextWindow(message.sessionId);
+        await this.postSessionsToWebview();
+        return;
+      case "prevWindow":
+        await this.tmuxSessionManager.prevWindow(message.sessionId);
+        await this.postSessionsToWebview();
+        return;
       case "killWindow":
         await this.tmuxSessionManager.killWindow(message.windowId);
+        await this.postSessionsToWebview();
+        return;
+      case "selectWindow":
+        this.outputChannel?.appendLine(
+          `[TerminalManager] selectWindow: sessionId=${message.sessionId}, windowId=${message.windowId}`,
+        );
+        await this.tmuxSessionManager.selectWindow(message.windowId);
         await this.postSessionsToWebview();
         return;
       case "switchPane":
@@ -354,7 +369,7 @@ export class TerminalManagerDashboardProvider
    * @param webview The webview to generate HTML for
    * @returns The HTML string
    */
-  private static readonly HTML_VERSION = 10;
+  private static readonly HTML_VERSION = 11;
 
   private getHtmlContent(webview: vscode.Webview): string {
     const scriptUri = webview.asWebviewUri(
@@ -549,6 +564,19 @@ export class TerminalManagerDashboardProvider
       font-size: 12px;
       font-weight: 600;
       color: var(--vscode-foreground);
+    }
+    .window-select-btn {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--vscode-foreground);
+      background: none;
+      border: none;
+      padding: 0;
+      cursor: pointer;
+      text-align: left;
+    }
+    .window-select-btn:hover {
+      text-decoration: underline;
     }
     .window-index {
       font-size: 10px;

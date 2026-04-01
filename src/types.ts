@@ -101,8 +101,11 @@ export type TmuxDashboardActionMessage =
   | { action: "activate"; sessionId: string }
   | { action: "expandPanes"; sessionId: string }
   | { action: "createWindow"; sessionId: string }
+  | { action: "nextWindow"; sessionId: string }
+  | { action: "prevWindow"; sessionId: string }
   | { action: "killWindow"; sessionId: string; windowId: string }
   | { action: "killSession"; sessionId: string }
+  | { action: "selectWindow"; sessionId: string; windowId: string }
   | { action: "switchPane"; sessionId: string; paneId: string }
   | {
       action: "splitPane";

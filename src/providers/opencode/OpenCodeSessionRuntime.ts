@@ -14,6 +14,8 @@ import {
 } from "../../services/TmuxSessionManager";
 import { TerminalManager } from "../../terminals/TerminalManager";
 
+type LaunchChoice = "opencode" | "shell";
+
 interface StartupWorkspaceResolution {
   workspacePath: string;
   isWorkspaceScoped: boolean;
@@ -551,9 +553,65 @@ export class OpenCodeSessionRuntime {
     );
   }
 
+  private async resolveLaunchChoice(
+    configKey: "nativeShellDefault" | "tmuxSessionDefault",
+  ): Promise<LaunchChoice | undefined> {
+    const config = vscode.workspace.getConfiguration("opencodeTui");
+    const persisted = config.get<string>(configKey, "");
+    if (persisted === "opencode" || persisted === "shell") {
+      return persisted;
+    }
+
+    const items: vscode.QuickPickItem[] = [
+      {
+        label: "$(terminal) OpenCode",
+        description: "Launch OpenCode in the terminal",
+      },
+      {
+        label: "$(shell) Default Shell (zsh)",
+        description: "Launch default shell without OpenCode",
+      },
+    ];
+
+    const picked = await vscode.window.showQuickPick(items, {
+      placeHolder: "What would you like to launch?",
+      canPickMany: false,
+    });
+
+    if (!picked) {
+      return undefined;
+    }
+
+    const choice: LaunchChoice = picked.label.includes("OpenCode")
+      ? "opencode"
+      : "shell";
+
+    const remember = await vscode.window.showInformationMessage(
+      "Remember this choice? You can change it later in settings.",
+      { modal: false },
+      "Yes, remember",
+    );
+
+    if (remember === "Yes, remember") {
+      await config.update(configKey, choice, vscode.ConfigurationTarget.Global);
+    }
+
+    return choice;
+  }
+
   public async switchToNativeShell(): Promise<void> {
     this.selectedTmuxSessionId = undefined;
-    this.forceNativeShellNextStart = true;
+
+    const launchChoice = await this.resolveLaunchChoice("nativeShellDefault");
+    if (!launchChoice) {
+      return;
+    }
+
+    if (launchChoice === "shell") {
+      this.forceNativeShellNextStart = true;
+    } else {
+      this.forceNativeShellNextStart = false;
+    }
 
     if (this.instanceStore) {
       const existing = this.instanceStore.get(this.activeInstanceId);
@@ -576,6 +634,11 @@ export class OpenCodeSessionRuntime {
       return undefined;
     }
 
+    const launchChoice = await this.resolveLaunchChoice("tmuxSessionDefault");
+    if (!launchChoice) {
+      return undefined;
+    }
+
     const { workspacePath } = this.resolveStartupWorkspacePath();
 
     try {
@@ -591,6 +654,11 @@ export class OpenCodeSessionRuntime {
       }
 
       await this.tmuxSessionManager.createSession(candidate, workspacePath);
+
+      if (launchChoice === "opencode") {
+        await this.switchToTmuxSession(candidate);
+      }
+
       return candidate;
     } catch (error) {
       this.logger.error(

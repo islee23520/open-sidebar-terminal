@@ -149,7 +149,7 @@ function render(payload: DashboardPayload): void {
                   return `<div class="pane-item${pActive}" data-session-id="${escapeHtml(s.id)}" data-pane-id="${escapeHtml(p.paneId)}"><span class="pane-name">${detectToolIcon(p.currentCommand)}${p.title || "Pane " + p.index}</span><button class="danger pane-kill-btn" data-action="killPane" data-session-id="${escapeHtml(s.id)}" data-pane-id="${escapeHtml(p.paneId)}" title="Kill Pane">✕</button></div>`;
                 })
                 .join("");
-              return `<div class="window-card${wActive}"><div class="window-row"><span class="window-name">${escapeHtml(w.name)}</span><span class="window-index">${w.index}</span><button class="danger pane-kill-btn" data-action="killWindow" data-session-id="${escapeHtml(s.id)}" data-window-id="${escapeHtml(w.windowId)}" title="Kill Window">✕</button></div><div class="pane-list">${panesHtml}</div></div>`;
+              return `<div class="window-card${wActive}" data-session-id="${escapeHtml(s.id)}" data-window-id="${escapeHtml(w.windowId)}"><div class="window-row"><button class="window-select-btn" data-action="selectWindow" data-session-id="${escapeHtml(s.id)}" data-window-id="${escapeHtml(w.windowId)}">${escapeHtml(w.name)}</button><span class="window-index">${w.index}</span><button class="danger pane-kill-btn" data-action="killWindow" data-session-id="${escapeHtml(s.id)}" data-window-id="${escapeHtml(w.windowId)}" title="Kill Window">✕</button></div><div class="pane-list">${panesHtml}</div></div>`;
             })
             .join("")}</div>`
         : "";
@@ -170,6 +170,8 @@ function render(payload: DashboardPayload): void {
         `<div class="pane-header" data-session-id="${escapeHtml(s.id)}">`,
         `<span>${isExpanded ? "▼" : "▶"} ${windowCount} window${windowCount !== 1 ? "s" : ""}, ${totalPaneCount} pane${totalPaneCount !== 1 ? "s" : ""}</span>`,
         "<div>",
+        `<button class="pane-split-btn" data-action="prevWindow" data-session-id="${escapeHtml(s.id)}" title="Previous Window">◀</button>`,
+        `<button class="pane-split-btn" data-action="nextWindow" data-session-id="${escapeHtml(s.id)}" title="Next Window">▶</button>`,
         `<button class="pane-split-btn" data-action="createWindow" data-session-id="${escapeHtml(s.id)}" title="New Window">+Win</button>`,
         `<button class="pane-split-btn" data-action="splitH" data-session-id="${escapeHtml(s.id)}" title="Split Horizontal">↕</button>`,
         `<button class="pane-split-btn" data-action="splitV" data-session-id="${escapeHtml(s.id)}" title="Split Vertical">↔</button>`,
@@ -291,7 +293,10 @@ document.addEventListener("click", (event) => {
     !target.closest('[data-action="killSession"]') &&
     !target.closest('[data-action="killWindow"]') &&
     !target.closest('[data-action="killPane"]') &&
-    !target.closest(".pane-split-btn")
+    !target.closest('[data-action="selectWindow"]') &&
+    !target.closest(".pane-split-btn") &&
+    !target.closest(".pane-item") &&
+    !target.closest(".window-card")
   ) {
     const card = target.closest(".session-card");
     if (card instanceof HTMLElement && card.dataset.sessionId) {
@@ -311,6 +316,14 @@ document.addEventListener("click", (event) => {
     const sessionId = button.dataset.sessionId;
     if (button.dataset.action === "createWindow") {
       vscode.postMessage({ action: "createWindow", sessionId });
+      return;
+    }
+    if (button.dataset.action === "nextWindow") {
+      vscode.postMessage({ action: "nextWindow", sessionId });
+      return;
+    }
+    if (button.dataset.action === "prevWindow") {
+      vscode.postMessage({ action: "prevWindow", sessionId });
       return;
     }
     const direction = button.dataset.action === "splitH" ? "h" : "v";
@@ -371,6 +384,24 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  if (
+    target.closest(".window-card") &&
+    !target.closest('[data-action="killWindow"]') &&
+    !target.closest('[data-action="killPane"]') &&
+    !target.closest('[data-action="selectWindow"]') &&
+    !target.closest(".pane-item")
+  ) {
+    const card = target.closest(".window-card");
+    if (card instanceof HTMLElement && card.dataset.windowId) {
+      vscode.postMessage({
+        action: "selectWindow",
+        sessionId: card.dataset.sessionId,
+        windowId: card.dataset.windowId,
+      });
+    }
+    return;
+  }
+
   if (target.closest(".ai-tool-option")) {
     const toolOption = target.closest(".ai-tool-option");
     if (toolOption instanceof HTMLElement) {
@@ -406,6 +437,15 @@ document.addEventListener("click", (event) => {
     action === "switchNativeShell"
   ) {
     vscode.postMessage({ action });
+    return;
+  }
+
+  if (action === "selectWindow") {
+    const sessionId = target.dataset.sessionId;
+    const windowId = target.dataset.windowId;
+    if (sessionId && windowId) {
+      vscode.postMessage({ action: "selectWindow", sessionId, windowId });
+    }
     return;
   }
 

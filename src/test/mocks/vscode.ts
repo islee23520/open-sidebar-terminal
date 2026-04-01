@@ -4,6 +4,7 @@ export const window = {
   showInformationMessage: vi.fn(),
   showErrorMessage: vi.fn(),
   showWarningMessage: vi.fn(),
+  showQuickPick: vi.fn(),
   showTextDocument: vi.fn(),
   activeTextEditor: undefined as any,
   activeTerminal: undefined as any,
@@ -103,6 +104,12 @@ export const commands = {
   }),
   executeCommand: vi.fn(),
 };
+
+export enum ConfigurationTarget {
+  Global = 1,
+  Workspace = 2,
+  WorkspaceFolder = 3,
+}
 
 export enum DiagnosticSeverity {
   Error = 0,
@@ -345,6 +352,7 @@ export default {
   workspace,
   languages,
   commands,
+  ConfigurationTarget,
   DiagnosticSeverity,
   CodeActionKind,
   ThemeColor,
