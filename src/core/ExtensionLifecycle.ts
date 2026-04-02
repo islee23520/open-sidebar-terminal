@@ -361,31 +361,42 @@ export class ExtensionLifecycle {
   }
 
   private async promptKillTmuxSessions(): Promise<void> {
-    if (!this.tmuxSessionManager || !this.instanceStore) {
+    if (!this.tmuxSessionManager) {
       return;
     }
 
-    const sessionIds = this.instanceStore
-      .getAll()
-      .map((record) => record.runtime.tmuxSessionId)
-      .filter((id): id is string => typeof id === "string" && id.length > 0);
+    const allSessions = await this.tmuxSessionManager.discoverSessions();
 
-    if (sessionIds.length === 0) {
+    if (allSessions.length === 0) {
       return;
     }
 
-    const count = sessionIds.length;
-    const label = count === 1 ? "1개의 tmux 세션이" : `${count}개의 tmux 세션이`;
+    const count = allSessions.length;
     const answer = await vscode.window.showWarningMessage(
-      `실행 중인 ${label} 있습니다. VS Code를 닫으면서 세션도 종료하시겠습니까?`,
+      `${count} tmux ${count === 1 ? "session is" : "sessions are"} running. Kill ${count === 1 ? "it" : "them"} when closing VS Code?`,
       { modal: true },
-      "세션 종료",
-      "유지",
+      "Kill Sessions",
+      "Keep Running",
     );
 
-    if (answer === "세션 종료") {
+    if (answer === "Kill Sessions") {
+      const instanceSessionIds = new Set(
+        this.instanceStore
+          ?.getAll()
+          .map((r) => r.runtime.tmuxSessionId)
+          .filter((id): id is string => typeof id === "string" && id.length > 0) ??
+          [],
+      );
+
       await Promise.allSettled(
-        sessionIds.map((id) => this.tmuxSessionManager!.killSession(id)),
+        allSessions.map((session) => {
+          if (instanceSessionIds.has(session.id)) {
+            return (
+              this.tuiProvider?.killTmuxSession(session.id) ?? Promise.resolve()
+            );
+          }
+          return this.tmuxSessionManager!.killSession(session.id);
+        }),
       );
     }
   }

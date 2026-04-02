@@ -120,10 +120,10 @@
         "category": "OpenCode TUI"
       },
       {
-        "command": "opencodeTui.createTmuxSession",
-        "title": "Create Tmux Session",
+        "command": "opencodeTui.browseTmuxSessions",
+        "title": "Browse Tmux Sessions",
         "category": "OpenCode TUI",
-        "icon": "$(new-file)"
+        "icon": "$(server-environment)"
       },
       {
         "command": "opencodeTui.switchNativeShell",
@@ -253,11 +253,6 @@
           "command": "opencodeTui.tmuxPrevWindow",
           "when": "view == opencodeTui.terminalManager",
           "group": "navigation@4"
-        },
-        {
-          "command": "opencodeTui.createTmuxSession",
-          "when": "view == opencodeTui.terminalManager",
-          "group": "navigation@5"
         }
       ],
       "explorer/context": [
@@ -291,6 +286,12 @@
         "key": "ctrl+alt+a",
         "mac": "cmd+alt+a",
         "when": "editorTextFocus || terminalFocus"
+      },
+      {
+        "command": "opencodeTui.browseTmuxSessions",
+        "key": "ctrl+alt+t",
+        "mac": "cmd+alt+t",
+        "when": "focusedView == 'opencodeTui'"
       },
       {
         "command": "-workbench.action.quickOpen",

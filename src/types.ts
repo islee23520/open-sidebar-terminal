@@ -222,7 +222,13 @@ export type HostMessage =
       cursorBlink: boolean;
       cursorStyle: "block" | "underline" | "bar";
       scrollback: number;
-    };
+    }
+  | {
+      type: "activeSession";
+      sessionName: string;
+      sessionId: string;
+    }
+  | { type: "activeSession" };
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
 export type DiagnosticSeverity = "error" | "warning" | "information" | "hint";

@@ -4,6 +4,7 @@ import type { InstanceController } from "../../services/InstanceController";
 import type { InstanceQuickPick } from "../../services/InstanceQuickPick";
 import type { InstanceStore } from "../../services/InstanceStore";
 import type { OutputChannelService } from "../../services/OutputChannelService";
+import type { TmuxSessionManager } from "../../services/TmuxSessionManager";
 
 export interface TmuxSessionCommandDependencies {
   provider: TerminalProvider | undefined;
@@ -11,6 +12,7 @@ export interface TmuxSessionCommandDependencies {
   instanceController: InstanceController | undefined;
   instanceQuickPick: InstanceQuickPick | undefined;
   outputChannel: OutputChannelService | undefined;
+  tmuxManager: TmuxSessionManager | undefined;
 }
 
 export function registerTmuxSessionCommands(
@@ -173,6 +175,17 @@ export function registerTmuxSessionCommands(
     },
   );
 
+  const killTmuxSessionCommand = vscode.commands.registerCommand(
+    "opencodeTui.killTmuxSession",
+    async (sessionId?: string) => {
+      if (!sessionId || !deps.provider) {
+        return;
+      }
+
+      await deps.provider.killTmuxSession(sessionId);
+    },
+  );
+
   const switchNativeShellCommand = vscode.commands.registerCommand(
     "opencodeTui.switchNativeShell",
     async () => {
@@ -194,13 +207,80 @@ export function registerTmuxSessionCommands(
     },
   );
 
+  const browseTmuxSessionsCommand = vscode.commands.registerCommand(
+    "opencodeTui.browseTmuxSessions",
+    async () => {
+      if (!deps.tmuxManager || !deps.provider) {
+        vscode.window.showWarningMessage(
+          "tmux is not available or the terminal provider is not initialized",
+        );
+        return;
+      }
+
+      try {
+        const sessions = await deps.tmuxManager.discoverSessions();
+        if (sessions.length === 0) {
+          vscode.window.showInformationMessage("No tmux sessions found");
+          return;
+        }
+
+        const activeSessionId =
+          deps.instanceStore?.getActive()?.runtime.tmuxSessionId;
+
+        const items = sessions.map((session) => ({
+          label: session.name,
+          description: session.workspace,
+          detail: session.isActive ? "attached" : undefined,
+          session,
+        }));
+
+        items.sort((a, b) => {
+          if (a.session.id === activeSessionId) return -1;
+          if (b.session.id === activeSessionId) return 1;
+          return a.label.localeCompare(b.label);
+        });
+
+        const picked = await vscode.window.showQuickPick(items, {
+          placeHolder: activeSessionId
+            ? `Current: ${activeSessionId} — select a session to switch`
+            : "Select a tmux session to attach",
+          matchOnDescription: true,
+          matchOnDetail: true,
+        });
+
+        if (!picked) {
+          return;
+        }
+
+        if (picked.session.id === activeSessionId) {
+          vscode.window.showInformationMessage(
+            `Already attached to session "${picked.session.name}"`,
+          );
+          return;
+        }
+
+        await deps.provider.switchToTmuxSession(picked.session.id);
+        await vscode.commands.executeCommand("opencodeTui.focus");
+      } catch (error) {
+        deps.outputChannel?.error(
+          `Failed to browse tmux sessions: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        vscode.window.showErrorMessage(
+          `Failed to browse tmux sessions: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    },
+  );
+
   return [
     openInNewWindowCommand,
     spawnForWorkspaceCommand,
     selectInstanceCommand,
     switchTmuxSessionCommand,
     createTmuxSessionCommand,
+    killTmuxSessionCommand,
     switchNativeShellCommand,
     openTerminalManagerCommand,
+    browseTmuxSessionsCommand,
   ];
 }

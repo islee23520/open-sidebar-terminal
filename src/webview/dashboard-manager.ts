@@ -250,6 +250,7 @@ function updateAiSelectorFocus(): void {
 }
 
 function selectAiTool(toolId: string): void {
+  if (!aiSelectorSessionId) return;
   const tool = aiSelectorTools.find((t) => t.name === toolId);
   if (!tool) return;
   const saveCheckbox = document.getElementById("ai-save-default");

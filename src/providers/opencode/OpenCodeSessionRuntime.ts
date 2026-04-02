@@ -217,6 +217,12 @@ export class OpenCodeSessionRuntime {
         tmuxSessionId = await this.resolveFallbackTmuxSessionId();
       }
 
+      if (tmuxSessionId && this.tmuxSessionManager) {
+        try {
+          await this.tmuxSessionManager.setMouseOn(tmuxSessionId);
+        } catch {}
+      }
+
       const terminalCommand = this.resolveTerminalStartupCommand(
         command,
         tmuxSessionId,
@@ -290,6 +296,8 @@ export class OpenCodeSessionRuntime {
       this.reconnectListeners();
 
       this.isStarted = true;
+
+      this.notifyActiveSession(tmuxSessionId);
 
       if (enableHttpApi && port) {
         this.apiClient = new OpenCodeApiClient(port, 10, 200, httpTimeout);
@@ -551,6 +559,7 @@ export class OpenCodeSessionRuntime {
         forceRestart: true,
       },
     );
+    this.notifyActiveSession(sessionId);
   }
 
   private async resolveLaunchChoice(
@@ -627,6 +636,7 @@ export class OpenCodeSessionRuntime {
     }
 
     await this.switchToInstance(this.activeInstanceId, { forceRestart: true });
+    this.notifyActiveSession(undefined);
   }
 
   public async createTmuxSession(): Promise<string | undefined> {
@@ -742,6 +752,18 @@ export class OpenCodeSessionRuntime {
         this.instanceStore.setActive(instanceId);
       }
     } catch {}
+  }
+
+  private notifyActiveSession(sessionId: string | undefined): void {
+    if (!sessionId) {
+      this.callbacks.postMessage({ type: "activeSession" });
+      return;
+    }
+    this.callbacks.postMessage({
+      type: "activeSession",
+      sessionName: sessionId,
+      sessionId,
+    });
   }
 
   public dispose(): void {

@@ -211,6 +211,19 @@ export class TmuxSessionManager {
         "-c",
         workspacePath,
       ]);
+      await this.runTmux(["set-option", "-t", sessionName, "mouse", "on"]);
+    } catch (error) {
+      if (this.isTmuxUnavailable(error)) {
+        throw new TmuxUnavailableError();
+      }
+
+      throw error;
+    }
+  }
+
+  public async setMouseOn(sessionId: string): Promise<void> {
+    try {
+      await this.runTmux(["set-option", "-t", sessionId, "mouse", "on"]);
     } catch (error) {
       if (this.isTmuxUnavailable(error)) {
         throw new TmuxUnavailableError();

@@ -46,9 +46,12 @@ function copySelectionToClipboard(selection: string): void {
   });
 }
 
+let copyToastTimer: ReturnType<typeof setTimeout> | null = null;
+
 function showCopyToast(): void {
   const existing = document.getElementById("copy-toast");
   if (existing) existing.remove();
+  if (copyToastTimer) clearTimeout(copyToastTimer);
 
   const toast = document.createElement("div");
   toast.id = "copy-toast";
@@ -58,8 +61,10 @@ function showCopyToast(): void {
     bottom: "24px",
     left: "50%",
     transform: "translateX(-50%)",
-    background: "rgba(40,40,40,0.92)",
-    color: "#e0e0e0",
+    background: "var(--vscode-notifications-background, rgba(40,40,40,0.92))",
+    color: "var(--vscode-notifications-foreground, #e0e0e0)",
+    border:
+      "1px solid var(--vscode-notifications-border, rgba(255,255,255,0.1))",
     padding: "6px 16px",
     borderRadius: "6px",
     fontSize: "12px",
@@ -70,9 +75,12 @@ function showCopyToast(): void {
   });
   document.body.appendChild(toast);
 
-  setTimeout(() => {
+  copyToastTimer = setTimeout(() => {
     toast.style.opacity = "0";
-    setTimeout(() => toast.remove(), 400);
+    copyToastTimer = setTimeout(() => {
+      toast.remove();
+      copyToastTimer = null;
+    }, 400);
   }, 1200);
 }
 
@@ -146,7 +154,6 @@ function initTerminal(): void {
       vscode.postMessage({ type: "triggerPaste" });
     }
   });
-
 
   terminal = new Terminal({
     cursorBlink: config.cursorBlink,
@@ -323,52 +330,21 @@ function initTerminal(): void {
   });
 
   terminal.open(container);
+  terminal.focus();
+  terminal.write("\x1b[?1000h\x1b[?1002h\x1b[?1006h");
 
-  // Copy-on-select: fires after xterm.js finalizes the selection
+  // Copy-on-select: fires after xterm.js finalizes the selection.
+  // Guard prevents re-entry when clearSelection() fires onSelectionChange again.
+  let isClearingSelection = false;
   terminal.onSelectionChange(() => {
+    if (isClearingSelection) return;
     const selection = terminal?.getSelection();
     if (selection && selection.length > 0) {
       copySelectionToClipboard(selection);
       showCopyToast();
+      isClearingSelection = true;
       terminal?.clearSelection();
-    }
-  });
-
-  // Click-to-switch-pane: forward bare left-clicks as SGR mouse events so
-  // tmux can handle pane focus, even though we stripped app mouse-reporting.
-  let clickOrigin: { x: number; y: number } | null = null;
-
-  container.addEventListener("mousedown", (e) => {
-    if (e.button === 0 && !e.shiftKey) {
-      clickOrigin = { x: e.clientX, y: e.clientY };
-    }
-  });
-
-  container.addEventListener("mouseup", (e) => {
-    if (e.button !== 0 || !clickOrigin || !terminal) {
-      clickOrigin = null;
-      return;
-    }
-    const dx = e.clientX - clickOrigin.x;
-    const dy = e.clientY - clickOrigin.y;
-    clickOrigin = null;
-
-    // Only send click (not drag) to PTY so tmux can switch pane
-    if (Math.abs(dx) < 5 && Math.abs(dy) < 5) {
-      const rect = container.getBoundingClientRect();
-      const col = Math.max(
-        1,
-        Math.floor(((e.clientX - rect.left) / container.offsetWidth) * terminal.cols) + 1,
-      );
-      const row = Math.max(
-        1,
-        Math.floor(((e.clientY - rect.top) / container.offsetHeight) * terminal.rows) + 1,
-      );
-      // SGR mouse press + release
-      vscode.postMessage({
-        type: "terminalInput",
-        data: `\x1b[<0;${col};${row}M\x1b[<0;${col};${row}m`,
-      });
+      isClearingSelection = false;
     }
   });
 
@@ -732,14 +708,7 @@ window.addEventListener("message", (event) => {
   switch (message.type) {
     case "terminalOutput":
       if (terminal) {
-        // Strip application-level mouse reporting enable sequences so xterm.js
-        // stays in selection mode regardless of what Claude/tools request.
-        // Only strip enables (h suffix); disable sequences (l suffix) pass through.
-        const filtered = message.data.replace(
-          /\x1b\[\?(?:1000|1002|1003|1004|1005|1006|1007|1015)h/g,
-          "",
-        );
-        terminal.write(filtered);
+        terminal.write(message.data);
       }
       break;
     case "terminalExited":
@@ -799,6 +768,17 @@ window.addEventListener("message", (event) => {
         terminal.paste(message.text);
       }
       break;
+    case "activeSession": {
+      const indicator = document.getElementById("session-indicator");
+      if (!indicator) break;
+      if ("sessionName" in message && message.sessionName) {
+        indicator.textContent = message.sessionName;
+        indicator.classList.remove("hidden");
+      } else {
+        indicator.classList.add("hidden");
+      }
+      break;
+    }
   }
 });
 

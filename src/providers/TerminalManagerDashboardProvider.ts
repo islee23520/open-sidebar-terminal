@@ -184,7 +184,7 @@ export class TerminalManagerDashboardProvider
         tools,
       };
 
-      const posted = this.view.webview.postMessage(message);
+      const posted = await this.view.webview.postMessage(message);
       if (!posted) {
         this.outputChannel?.appendLine(
           `[TerminalManager] postMessage returned false (webview not visible), queuing retry`,
@@ -325,7 +325,10 @@ export class TerminalManagerDashboardProvider
         const wasActive = killedSession?.isActive ?? false;
         const killedWorkspace = killedSession?.workspace;
 
-        await this.tmuxSessionManager.killSession(message.sessionId);
+        await vscode.commands.executeCommand(
+          "opencodeTui.killTmuxSession",
+          message.sessionId,
+        );
 
         if (wasActive && killedWorkspace) {
           const sessionsAfter =

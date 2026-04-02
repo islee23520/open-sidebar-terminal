@@ -302,6 +302,28 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
       flex: 1;
       height: 100%;
       min-width: 0;
+      position: relative;
+      overflow: hidden;
+      touch-action: none;
+    }
+    .session-indicator {
+      position: absolute;
+      top: 4px;
+      right: 8px;
+      font-size: 11px;
+      font-family: var(--vscode-font-family);
+      color: var(--vscode-descriptionForeground);
+      background: var(--vscode-editor-background);
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 4px;
+      padding: 1px 6px;
+      z-index: 10;
+      pointer-events: none;
+      opacity: 0.8;
+      transition: opacity 0.3s ease;
+    }
+    .session-indicator.hidden {
+      display: none;
     }
     .font-preload {
       position: absolute;
@@ -313,6 +335,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
   <span class="font-preload" aria-hidden="true">ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=[]{}|;':\",./<>?\`~</span>
+  <div id="session-indicator" class="session-indicator hidden"></div>
   <div id="terminal-container"
     data-font-size="${fontSize}"
     data-font-family="${escapedFontFamily}"
