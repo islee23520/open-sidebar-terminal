@@ -435,6 +435,40 @@ describe("TerminalProvider", () => {
     expect(ensureSession).not.toHaveBeenCalled();
   });
 
+  it("does not re-attach to tmux when switching to native shell with opencode in a workspace", async () => {
+    mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
+    const ensureSession = vi.fn();
+    const discoverSessions = vi.fn().mockResolvedValue([]);
+    const tmuxSessionManager = {
+      ensureSession,
+      discoverSessions,
+    } as unknown as TmuxSessionManager;
+
+    vscode.workspace.workspaceFolders = [
+      { uri: { fsPath: "/workspace/myproject" } },
+    ] as any;
+
+    provider = createProvider({ tmuxSessionManager });
+    const createTerminalSpy = vi.spyOn(terminalManager, "createTerminal");
+    resolveProvider(provider);
+
+    vi.mocked(vscode.window.showQuickPick).mockResolvedValueOnce({
+      label: "$(terminal) OpenCode",
+      description: "Launch OpenCode in the terminal",
+    } as any);
+    vi.mocked(vscode.window.showInformationMessage).mockResolvedValueOnce(
+      undefined,
+    );
+
+    await provider.switchToNativeShell();
+    await flushAsyncStartup();
+
+    const lastCall =
+      createTerminalSpy.mock.calls[createTerminalSpy.mock.calls.length - 1];
+    expect(lastCall?.[1]).toBe("opencode -c");
+    expect(ensureSession).not.toHaveBeenCalled();
+  });
+
   it("switches to native shell with default zsh when user picks shell from dialog", async () => {
     mockConfiguration({ autoStartOnOpen: false, enableHttpApi: false });
     const tmuxSessionManager = {

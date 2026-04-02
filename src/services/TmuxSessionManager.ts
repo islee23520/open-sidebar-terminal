@@ -221,6 +221,14 @@ export class TmuxSessionManager {
     }
   }
 
+  public async showBuffer(): Promise<string> {
+    try {
+      return await this.runTmux(["show-buffer"]);
+    } catch {
+      return "";
+    }
+  }
+
   public async setMouseOn(sessionId: string): Promise<void> {
     try {
       await this.runTmux(["set-option", "-t", sessionId, "mouse", "on"]);

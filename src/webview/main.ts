@@ -26,6 +26,14 @@ let lastPasteTime = 0;
 let needsRefresh = false;
 let animationFrameId: number | null = null;
 
+const MOUSE_ENABLE = "\x1b[?1000h\x1b[?1002h\x1b[?1006h";
+const MOUSE_DISABLE = "\x1b[?1000l\x1b[?1002l\x1b[?1006l";
+
+function setMouseTracking(enabled: boolean): void {
+  if (!terminal) return;
+  terminal.write(enabled ? MOUSE_ENABLE : MOUSE_DISABLE);
+}
+
 function scheduleRefresh() {
   needsRefresh = true;
   if (animationFrameId !== null) return;
@@ -46,43 +54,6 @@ function copySelectionToClipboard(selection: string): void {
   });
 }
 
-let copyToastTimer: ReturnType<typeof setTimeout> | null = null;
-
-function showCopyToast(): void {
-  const existing = document.getElementById("copy-toast");
-  if (existing) existing.remove();
-  if (copyToastTimer) clearTimeout(copyToastTimer);
-
-  const toast = document.createElement("div");
-  toast.id = "copy-toast";
-  toast.textContent = "Copied to clipboard";
-  Object.assign(toast.style, {
-    position: "fixed",
-    bottom: "24px",
-    left: "50%",
-    transform: "translateX(-50%)",
-    background: "var(--vscode-notifications-background, rgba(40,40,40,0.92))",
-    color: "var(--vscode-notifications-foreground, #e0e0e0)",
-    border:
-      "1px solid var(--vscode-notifications-border, rgba(255,255,255,0.1))",
-    padding: "6px 16px",
-    borderRadius: "6px",
-    fontSize: "12px",
-    pointerEvents: "none",
-    zIndex: "9999",
-    transition: "opacity 0.4s ease",
-    opacity: "1",
-  });
-  document.body.appendChild(toast);
-
-  copyToastTimer = setTimeout(() => {
-    toast.style.opacity = "0";
-    copyToastTimer = setTimeout(() => {
-      toast.remove();
-      copyToastTimer = null;
-    }, 400);
-  }, 1200);
-}
 
 async function handlePasteWithImageSupport(): Promise<void> {
   try {
@@ -331,22 +302,7 @@ function initTerminal(): void {
 
   terminal.open(container);
   terminal.focus();
-  terminal.write("\x1b[?1000h\x1b[?1002h\x1b[?1006h");
-
-  // Copy-on-select: fires after xterm.js finalizes the selection.
-  // Guard prevents re-entry when clearSelection() fires onSelectionChange again.
-  let isClearingSelection = false;
-  terminal.onSelectionChange(() => {
-    if (isClearingSelection) return;
-    const selection = terminal?.getSelection();
-    if (selection && selection.length > 0) {
-      copySelectionToClipboard(selection);
-      showCopyToast();
-      isClearingSelection = true;
-      terminal?.clearSelection();
-      isClearingSelection = false;
-    }
-  });
+  setMouseTracking(true);
 
   try {
     const webglAddon = new WebglAddon();

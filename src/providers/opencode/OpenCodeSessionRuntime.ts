@@ -43,6 +43,8 @@ export class OpenCodeSessionRuntime {
   private lastKnownRows = 0;
   private selectedTmuxSessionId?: string;
   private forceNativeShellNextStart = false;
+  private clipboardPollInterval?: ReturnType<typeof setInterval>;
+  private lastTmuxBuffer = "";
 
   public constructor(
     private readonly terminalManager: TerminalManager,
@@ -616,11 +618,7 @@ export class OpenCodeSessionRuntime {
       return;
     }
 
-    if (launchChoice === "shell") {
-      this.forceNativeShellNextStart = true;
-    } else {
-      this.forceNativeShellNextStart = false;
-    }
+    this.forceNativeShellNextStart = true;
 
     if (this.instanceStore) {
       const existing = this.instanceStore.get(this.activeInstanceId);
@@ -756,9 +754,11 @@ export class OpenCodeSessionRuntime {
 
   private notifyActiveSession(sessionId: string | undefined): void {
     if (!sessionId) {
+      this.stopClipboardSync();
       this.callbacks.postMessage({ type: "activeSession" });
       return;
     }
+    this.startClipboardSync();
     this.callbacks.postMessage({
       type: "activeSession",
       sessionName: sessionId,
@@ -766,7 +766,31 @@ export class OpenCodeSessionRuntime {
     });
   }
 
+  private startClipboardSync(): void {
+    this.stopClipboardSync();
+    if (!this.tmuxSessionManager) {
+      return;
+    }
+    this.clipboardPollInterval = setInterval(async () => {
+      try {
+        const buf = await this.tmuxSessionManager!.showBuffer();
+        if (buf && buf !== this.lastTmuxBuffer) {
+          this.lastTmuxBuffer = buf;
+          await vscode.env.clipboard.writeText(buf);
+        }
+      } catch {}
+    }, 500);
+  }
+
+  private stopClipboardSync(): void {
+    if (this.clipboardPollInterval !== undefined) {
+      clearInterval(this.clipboardPollInterval);
+      this.clipboardPollInterval = undefined;
+    }
+  }
+
   public dispose(): void {
+    this.stopClipboardSync();
     this.disposeListeners();
     this.activeInstanceSubscription?.dispose();
     this.activeInstanceSubscription = undefined;
