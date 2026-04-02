@@ -15,7 +15,7 @@ import { InstanceController } from "../services/InstanceController";
 import { PortManager } from "../services/PortManager";
 import { ConnectionResolver } from "../services/ConnectionResolver";
 import { TmuxSessionManager } from "../services/TmuxSessionManager";
-import { TerminalManagerDashboardProvider } from "../providers/TerminalManagerDashboardProvider";
+import { TerminalDashboardProvider } from "../providers/TerminalDashboardProvider";
 import {
   registerCommands as registerAllCommands,
   type RegisterCommandDependencies,
@@ -39,9 +39,7 @@ export class ExtensionLifecycle {
   private instanceController: InstanceController | undefined;
   private portManager: PortManager | undefined;
   private tmuxSessionManager: TmuxSessionManager | undefined;
-  private terminalManagerDashboardProvider:
-    | TerminalManagerDashboardProvider
-    | undefined;
+  private terminalDashboardProvider: TerminalDashboardProvider | undefined;
 
   private static readonly TERMINAL_ID = "opencode-main";
 
@@ -161,15 +159,15 @@ export class ExtensionLifecycle {
       context.subscriptions.push(provider);
 
       if (this.tmuxSessionManager) {
-        this.terminalManagerDashboardProvider =
-          new TerminalManagerDashboardProvider(
-            context,
-            this.tmuxSessionManager,
-            logger.getChannel(),
-          );
+        this.terminalDashboardProvider = new TerminalDashboardProvider(
+          context,
+          this.tmuxSessionManager,
+          logger.getChannel(),
+          this.instanceStore,
+        );
         const tmuxDashboardProvider = vscode.window.registerWebviewViewProvider(
-          TerminalManagerDashboardProvider.viewType,
-          this.terminalManagerDashboardProvider,
+          TerminalDashboardProvider.viewType,
+          this.terminalDashboardProvider,
           {
             webviewOptions: {
               retainContextWhenHidden: true,
@@ -384,8 +382,9 @@ export class ExtensionLifecycle {
         this.instanceStore
           ?.getAll()
           .map((r) => r.runtime.tmuxSessionId)
-          .filter((id): id is string => typeof id === "string" && id.length > 0) ??
-          [],
+          .filter(
+            (id): id is string => typeof id === "string" && id.length > 0,
+          ) ?? [],
       );
 
       await Promise.allSettled(
@@ -443,9 +442,9 @@ export class ExtensionLifecycle {
       this.instanceStore = undefined;
     }
 
-    if (this.terminalManagerDashboardProvider) {
-      this.terminalManagerDashboardProvider.dispose();
-      this.terminalManagerDashboardProvider = undefined;
+    if (this.terminalDashboardProvider) {
+      this.terminalDashboardProvider.dispose();
+      this.terminalDashboardProvider = undefined;
     }
 
     this.codeActionProvider = undefined;

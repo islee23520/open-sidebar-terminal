@@ -503,7 +503,7 @@ export function registerTmuxPaneCommands(
     "opencodeTui.tmuxRefresh",
     async () => {
       await vscode.commands.executeCommand(
-        "opencodeTui.terminalManager.focus",
+        "opencodeTui.terminalDashboard.focus",
       );
     },
   );

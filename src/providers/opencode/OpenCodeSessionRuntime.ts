@@ -43,6 +43,7 @@ export class OpenCodeSessionRuntime {
   private lastKnownRows = 0;
   private selectedTmuxSessionId?: string;
   private forceNativeShellNextStart = false;
+  private pendingLaunchChoice?: LaunchChoice;
   private clipboardPollInterval?: ReturnType<typeof setInterval>;
   private lastTmuxBuffer = "";
 
@@ -167,32 +168,41 @@ export class OpenCodeSessionRuntime {
       const config = vscode.workspace.getConfiguration("opencodeTui");
       const enableHttpApi = config.get<boolean>("enableHttpApi", true);
       const httpTimeout = config.get<number>("httpTimeout", 5000);
+
+      let command: string | undefined;
       const defaultToolName = config.get<string>("defaultAiTool", "opencode");
       const tools = resolveAiToolConfigs(config.get("aiTools", []));
 
-      let command: string;
-      const defaultTool = tools.find((t) => t.name === defaultToolName);
-      if (defaultTool) {
-        command = getToolLaunchCommand(defaultTool);
+      if (
+        this.forceNativeShellNextStart &&
+        this.pendingLaunchChoice === "shell"
+      ) {
+        command = undefined;
+        this.pendingLaunchChoice = undefined;
       } else {
-        const toolItems = tools.map((t) => ({
-          label: t.label,
-          description: `Launch ${t.label} in tmux`,
-          tool: t,
-        }));
-        const picked = await vscode.window.showQuickPick(toolItems, {
-          placeHolder: "Select AI tool to launch",
-        });
-        if (!picked) {
-          this.isStarting = false;
-          return;
+        const defaultTool = tools.find((t) => t.name === defaultToolName);
+        if (defaultTool) {
+          command = getToolLaunchCommand(defaultTool);
+        } else {
+          const toolItems = tools.map((t) => ({
+            label: t.label,
+            description: `Launch ${t.label} in tmux`,
+            tool: t,
+          }));
+          const picked = await vscode.window.showQuickPick(toolItems, {
+            placeHolder: "Select AI tool to launch",
+          });
+          if (!picked) {
+            this.isStarting = false;
+            return;
+          }
+          command = getToolLaunchCommand(picked.tool);
+          await config.update(
+            "defaultAiTool",
+            picked.tool.name,
+            vscode.ConfigurationTarget.Global,
+          );
         }
-        command = getToolLaunchCommand(picked.tool);
-        await config.update(
-          "defaultAiTool",
-          picked.tool.name,
-          vscode.ConfigurationTarget.Global,
-        );
       }
       const forceNativeShell = this.forceNativeShellNextStart;
       const selectedTmuxSessionId = this.selectedTmuxSessionId;
@@ -232,7 +242,7 @@ export class OpenCodeSessionRuntime {
       this.selectedTmuxSessionId = undefined;
       this.forceNativeShellNextStart = false;
 
-      if (enableHttpApi) {
+      if (enableHttpApi && command !== undefined) {
         try {
           port = this.portManager.assignPortToTerminal(this.activeInstanceId);
           this.logger.info(
@@ -475,9 +485,9 @@ export class OpenCodeSessionRuntime {
   }
 
   public resolveTerminalStartupCommand(
-    defaultCommand: string,
+    defaultCommand: string | undefined,
     tmuxSessionId?: string,
-  ): string {
+  ): string | undefined {
     if (!tmuxSessionId) {
       return defaultCommand;
     }
@@ -619,6 +629,7 @@ export class OpenCodeSessionRuntime {
     }
 
     this.forceNativeShellNextStart = true;
+    this.pendingLaunchChoice = launchChoice;
 
     if (this.instanceStore) {
       const existing = this.instanceStore.get(this.activeInstanceId);

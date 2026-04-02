@@ -493,7 +493,7 @@ describe("TerminalProvider", () => {
 
     const lastCall =
       createTerminalSpy.mock.calls[createTerminalSpy.mock.calls.length - 1];
-    expect(lastCall?.[1]).toBe("opencode -c");
+    expect(lastCall?.[1]).toBeUndefined();
   });
 
   it("cancels native shell switch when user dismisses the dialog", async () => {

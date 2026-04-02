@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as vscodeTypes from "../test/mocks/vscode";
 import { TmuxSessionManager } from "../services/TmuxSessionManager";
-import { TerminalManagerDashboardProvider } from "./TerminalManagerDashboardProvider";
+import { TerminalDashboardProvider } from "./TerminalDashboardProvider";
 
 const vscode = await vi.importActual<typeof vscodeTypes>(
   "../test/mocks/vscode",
@@ -13,9 +13,9 @@ vi.mock("vscode", async () => {
 });
 
 /**
- * Tests for the TerminalManagerDashboardProvider class.
+ * Tests for the TerminalDashboardProvider class.
  */
-describe("TerminalManagerDashboardProvider", () => {
+describe("TerminalDashboardProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vscode.workspace.workspaceFolders = [
@@ -36,7 +36,7 @@ describe("TerminalManagerDashboardProvider", () => {
   }
 
   /**
-   * Creates an instance of TerminalManagerDashboardProvider with mocked dependencies.
+   * Creates an instance of TerminalDashboardProvider with mocked dependencies.
    */
   function createProvider(
     discoverSessions = vi.fn().mockResolvedValue([]),
@@ -54,7 +54,7 @@ describe("TerminalManagerDashboardProvider", () => {
 
     return {
       discoverSessions,
-      provider: new TerminalManagerDashboardProvider(
+      provider: new TerminalDashboardProvider(
         context as never,
         tmuxSessionManager,
       ),
@@ -64,7 +64,7 @@ describe("TerminalManagerDashboardProvider", () => {
   /**
    * Resolves the webview view for the provider and returns the view and message handler.
    */
-  function resolveProvider(provider: TerminalManagerDashboardProvider) {
+  function resolveProvider(provider: TerminalDashboardProvider) {
     const view = vscode.WebviewView();
     provider.resolveWebviewView(view as never, {} as never, {} as never);
     const messageHandler = vi.mocked(view.webview.onDidReceiveMessage).mock
@@ -109,6 +109,7 @@ describe("TerminalManagerDashboardProvider", () => {
           paneCount: 0,
         },
       ],
+      nativeShells: [],
       panes: {
         "repo-a": [],
       },
@@ -170,6 +171,7 @@ describe("TerminalManagerDashboardProvider", () => {
           paneCount: 0,
         },
       ],
+      nativeShells: [],
       panes: {
         "repo-a": [],
       },

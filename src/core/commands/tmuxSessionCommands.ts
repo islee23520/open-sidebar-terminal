@@ -202,7 +202,7 @@ export function registerTmuxSessionCommands(
     () => {
       vscode.commands.executeCommand(
         "workbench.view.focus",
-        "opencodeTui.terminalManager",
+        "opencodeTui.terminalDashboard",
       );
     },
   );

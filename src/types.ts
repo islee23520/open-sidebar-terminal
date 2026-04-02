@@ -94,10 +94,19 @@ export function getToolDetectionPatterns(tool: AiToolConfig): string[] {
   return patterns;
 }
 
+export type NativeShellDto = {
+  id: string;
+  label?: string;
+  state: string;
+  isActive: boolean;
+};
+
 export type TmuxDashboardActionMessage =
   | { action: "refresh" }
   | { action: "create" }
+  | { action: "createNativeShell" }
   | { action: "switchNativeShell" }
+  | { action: "activateNativeShell"; instanceId: string }
   | { action: "activate"; sessionId: string }
   | { action: "expandPanes"; sessionId: string }
   | { action: "createWindow"; sessionId: string }
@@ -170,6 +179,7 @@ export type TmuxDashboardHostMessage =
   | {
       type: "updateTmuxSessions";
       sessions: TmuxDashboardSessionDto[];
+      nativeShells?: NativeShellDto[];
       workspace: string;
       windows?: Record<string, TmuxDashboardWindowDto[]>;
       panes?: Record<string, TmuxDashboardPaneDto[]>;

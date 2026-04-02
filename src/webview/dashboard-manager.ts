@@ -43,10 +43,18 @@ interface TmuxDashboardWindowDto {
 
 interface DashboardPayload {
   sessions: TmuxDashboardSessionDto[];
+  nativeShells?: NativeShellDto[];
   workspace: string;
   windows?: Record<string, TmuxDashboardWindowDto[]>;
   showingAll?: boolean;
   tools?: AiToolConfig[];
+}
+
+interface NativeShellDto {
+  id: string;
+  label?: string;
+  state: string;
+  isActive: boolean;
 }
 
 const expandedSessions = new Set<string>();
@@ -112,6 +120,10 @@ function render(payload: DashboardPayload): void {
     (s) => s.isActive && s.workspace !== payload.workspace,
   );
 
+  const nativeShells = Array.isArray(payload.nativeShells)
+    ? payload.nativeShells
+    : [];
+
   if (banner && returnWorkspace) {
     if (activeOther) {
       banner.style.display = "flex";
@@ -121,13 +133,34 @@ function render(payload: DashboardPayload): void {
     }
   }
 
-  if (sessions.length === 0) {
+  if (sessions.length === 0 && nativeShells.length === 0) {
     list.innerHTML =
-      '<div class="empty">No tmux sessions for this workspace.</div>';
+      '<div class="empty">No tmux sessions or native shells for this workspace.</div>';
     return;
   }
 
-  list.innerHTML = sessions
+  const nativeShellCardsHtml = nativeShells
+    .map((s) => {
+      const activeClass = s.isActive ? " active" : "";
+      const statusText = s.isActive ? "Current" : "Available";
+      const stateLabel = s.state || "disconnected";
+      return [
+        `<div class="session-card${activeClass}" data-native-shell-id="${escapeHtml(s.id)}">`,
+        '<div class="row">',
+        "<div>",
+        `<strong>${escapeHtml(s.label || "Shell")}</strong>`,
+        `<div class="status">${statusText}</div>`,
+        "</div>",
+        "</div>",
+        '<div class="meta-grid">',
+        `<div class="meta">native shell · ${escapeHtml(stateLabel)}</div>`,
+        "</div>",
+        "</div>",
+      ].join("");
+    })
+    .join("");
+
+  const tmuxCardsHtml = sessions
     .map((s) => {
       const activeClass = s.isActive ? " active" : "";
       const statusText = s.isActive ? "Current" : "Available";
@@ -149,6 +182,8 @@ function render(payload: DashboardPayload): void {
                   return `<div class="pane-item${pActive}" data-session-id="${escapeHtml(s.id)}" data-pane-id="${escapeHtml(p.paneId)}"><span class="pane-name">${detectToolIcon(p.currentCommand)}${p.title || "Pane " + p.index}</span><button class="danger pane-kill-btn" data-action="killPane" data-session-id="${escapeHtml(s.id)}" data-pane-id="${escapeHtml(p.paneId)}" title="Kill Pane">✕</button></div>`;
                 })
                 .join("");
+
+              list.innerHTML = nativeShellCardsHtml + tmuxCardsHtml;
               return `<div class="window-card${wActive}" data-session-id="${escapeHtml(s.id)}" data-window-id="${escapeHtml(w.windowId)}"><div class="window-row"><button class="window-select-btn" data-action="selectWindow" data-session-id="${escapeHtml(s.id)}" data-window-id="${escapeHtml(w.windowId)}">${escapeHtml(w.name)}</button><span class="window-index">${w.index}</span><button class="danger pane-kill-btn" data-action="killWindow" data-session-id="${escapeHtml(s.id)}" data-window-id="${escapeHtml(w.windowId)}" title="Kill Window">✕</button></div><div class="pane-list">${panesHtml}</div></div>`;
             })
             .join("")}</div>`
@@ -305,6 +340,11 @@ document.addEventListener("click", (event) => {
         action: "activate",
         sessionId: card.dataset.sessionId,
       });
+    } else if (card instanceof HTMLElement && card.dataset.nativeShellId) {
+      vscode.postMessage({
+        action: "activateNativeShell",
+        instanceId: card.dataset.nativeShellId,
+      });
     }
     return;
   }
@@ -435,7 +475,8 @@ document.addEventListener("click", (event) => {
   if (
     action === "refresh" ||
     action === "create" ||
-    action === "switchNativeShell"
+    action === "switchNativeShell" ||
+    action === "createNativeShell"
   ) {
     vscode.postMessage({ action });
     return;

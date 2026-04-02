@@ -253,9 +253,16 @@ export class TmuxSessionManager {
     }
   }
 
-  public async createWindow(sessionId: string): Promise<void> {
+  public async createWindow(
+    sessionId: string,
+    workingDirectory?: string,
+  ): Promise<void> {
     try {
-      await this.runTmux(["new-window", "-t", sessionId]);
+      const args = ["new-window", "-t", sessionId];
+      if (workingDirectory) {
+        args.push("-c", workingDirectory);
+      }
+      await this.runTmux(args);
       this._onPaneChanged.fire();
     } catch (error) {
       if (this.isTmuxUnavailable(error)) {

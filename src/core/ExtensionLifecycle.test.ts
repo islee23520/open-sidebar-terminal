@@ -53,7 +53,7 @@ describe("ExtensionLifecycle", () => {
 
       expect(vscode.window.registerWebviewViewProvider).toHaveBeenNthCalledWith(
         2,
-        "opencodeTui.terminalManager",
+        "opencodeTui.terminalDashboard",
         expect.any(Object),
         expect.objectContaining({
           webviewOptions: { retainContextWhenHidden: true },

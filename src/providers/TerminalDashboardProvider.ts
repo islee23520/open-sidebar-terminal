@@ -1,12 +1,14 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { TmuxSessionManager } from "../services/TmuxSessionManager";
+import { InstanceStore } from "../services/InstanceStore";
 import {
   TmuxDashboardActionMessage,
   TmuxDashboardHostMessage,
   TmuxDashboardPaneDto,
   TmuxDashboardSessionDto,
   TmuxDashboardWindowDto,
+  NativeShellDto,
   AiTool,
   AiToolConfig,
   resolveAiToolConfigs,
@@ -15,12 +17,12 @@ import {
 } from "../types";
 
 /**
- * Terminal Managers dashboard provider. Webview-based tmux session manager with inline pane controls (split, switch, resize, swap, kill). Filters sessions to current workspace.
+ * Terminal Dashboard provider. Webview-based tmux session manager with inline pane controls (split, switch, resize, swap, kill). Filters sessions to current workspace.
  */
-export class TerminalManagerDashboardProvider
+export class TerminalDashboardProvider
   implements vscode.WebviewViewProvider, vscode.Disposable
 {
-  public static readonly viewType = "opencodeTui.terminalManager";
+  public static readonly viewType = "opencodeTui.terminalDashboard";
 
   private view?: vscode.WebviewView;
   private readonly subscriptions: vscode.Disposable[] = [];
@@ -37,6 +39,7 @@ export class TerminalManagerDashboardProvider
     private readonly context: vscode.ExtensionContext,
     private readonly tmuxSessionManager: TmuxSessionManager,
     private readonly outputChannel?: vscode.OutputChannel,
+    private readonly instanceStore?: InstanceStore,
   ) {}
 
   /**
@@ -113,11 +116,11 @@ export class TerminalManagerDashboardProvider
         : undefined;
 
       this.outputChannel?.appendLine(
-        `[TerminalManager] Discovered ${sessions.length} sessions, workspaceName=${workspaceName}, workspacePath=${workspacePath}`,
+        `[TerminalDashboard] Discovered ${sessions.length} sessions, workspaceName=${workspaceName}, workspacePath=${workspacePath}`,
       );
       for (const s of sessions) {
         this.outputChannel?.appendLine(
-          `[TerminalManager]   session: id=${s.id}, workspace=${s.workspace}, isActive=${s.isActive}`,
+          `[TerminalDashboard]   session: id=${s.id}, workspace=${s.workspace}, isActive=${s.isActive}`,
         );
       }
 
@@ -131,12 +134,12 @@ export class TerminalManagerDashboardProvider
         filtered = sessions;
         showAllFallback = true;
         this.outputChannel?.appendLine(
-          `[TerminalManager] No sessions matched workspace '${workspaceName}', showing all ${sessions.length} sessions`,
+          `[TerminalDashboard] No sessions matched workspace '${workspaceName}', showing all ${sessions.length} sessions`,
         );
       }
 
       this.outputChannel?.appendLine(
-        `[TerminalManager] Filtered to ${filtered.length} sessions${showAllFallback ? " (fallback: all)" : ""}`,
+        `[TerminalDashboard] Filtered to ${filtered.length} sessions${showAllFallback ? " (fallback: all)" : ""}`,
       );
 
       const panesMap: Record<string, TmuxDashboardPaneDto[]> = {};
@@ -174,9 +177,12 @@ export class TerminalManagerDashboardProvider
         config.get("aiTools", []),
       );
 
+      const nativeShells = this.buildNativeShellDtos(workspacePath);
+
       const message: TmuxDashboardHostMessage = {
         type: "updateTmuxSessions",
         sessions: payload,
+        nativeShells,
         workspace: workspaceName ?? "No workspace",
         panes: panesMap,
         windows: windowsMap,
@@ -187,13 +193,13 @@ export class TerminalManagerDashboardProvider
       const posted = await this.view.webview.postMessage(message);
       if (!posted) {
         this.outputChannel?.appendLine(
-          `[TerminalManager] postMessage returned false (webview not visible), queuing retry`,
+          `[TerminalDashboard] postMessage returned false (webview not visible), queuing retry`,
         );
         this.scheduleRetryPost(message);
       }
     } catch (error) {
       this.outputChannel?.appendLine(
-        `[TerminalManagerDashboardProvider] Failed to load tmux sessions: ${error instanceof Error ? error.message : String(error)}`,
+        `[TerminalDashboardProvider] Failed to load tmux sessions: ${error instanceof Error ? error.message : String(error)}`,
       );
       const fallbackMessage: TmuxDashboardHostMessage = {
         type: "updateTmuxSessions",
@@ -245,12 +251,58 @@ export class TerminalManagerDashboardProvider
         await vscode.commands.executeCommand("opencodeTui.switchNativeShell");
         await this.postSessionsToWebview();
         return;
+      case "createNativeShell":
+        {
+          const newId = `${Date.now()}`;
+          const workspacePath =
+            vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          const workspaceUri = workspacePath
+            ? vscode.Uri.file(workspacePath).toString()
+            : undefined;
+
+          if (this.instanceStore) {
+            this.instanceStore.upsert({
+              config: {
+                id: newId,
+                workspaceUri,
+                label: `Shell ${this.instanceStore.getAll().filter((r) => !r.runtime.tmuxSessionId).length + 1}`,
+              },
+              runtime: {},
+              state: "disconnected",
+            });
+          }
+
+          await vscode.commands.executeCommand("opencodeTui.switchNativeShell");
+          await this.postSessionsToWebview();
+        }
+        return;
+      case "activateNativeShell":
+        if (this.instanceStore) {
+          try {
+            this.instanceStore.setActive(message.instanceId);
+            await vscode.commands.executeCommand(
+              "opencodeTui.switchNativeShell",
+            );
+          } catch {
+            // instance may not exist, refresh silently
+          }
+        }
+        await this.postSessionsToWebview();
+        return;
       case "expandPanes":
         await this.postSessionsToWebview();
         return;
       case "createWindow":
-        await this.tmuxSessionManager.createWindow(message.sessionId);
-        await this.postSessionsToWebview();
+        {
+          const workspacePath =
+            vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          await this.tmuxSessionManager.createWindow(
+            message.sessionId,
+            workspacePath,
+          );
+          await this.postSessionsToWebview();
+          await this.showAiToolSelector(message.sessionId, message.sessionId);
+        }
         return;
       case "nextWindow":
         await this.tmuxSessionManager.nextWindow(message.sessionId);
@@ -266,7 +318,7 @@ export class TerminalManagerDashboardProvider
         return;
       case "selectWindow":
         this.outputChannel?.appendLine(
-          `[TerminalManager] selectWindow: sessionId=${message.sessionId}, windowId=${message.windowId}`,
+          `[TerminalDashboard] selectWindow: sessionId=${message.sessionId}, windowId=${message.windowId}`,
         );
         await this.tmuxSessionManager.selectWindow(message.windowId);
         await this.postSessionsToWebview();
@@ -276,19 +328,29 @@ export class TerminalManagerDashboardProvider
         await this.postSessionsToWebview();
         return;
       case "splitPane":
-        await this.tmuxSessionManager.splitPane(
-          message.paneId ?? message.sessionId,
-          message.direction,
-        );
-        await this.postSessionsToWebview();
+        {
+          const workspacePath =
+            vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          await this.tmuxSessionManager.splitPane(
+            message.paneId ?? message.sessionId,
+            message.direction,
+            { workingDirectory: workspacePath },
+          );
+          await this.postSessionsToWebview();
+          await this.showAiToolSelector(message.sessionId, message.sessionId);
+        }
         return;
       case "splitPaneWithCommand":
-        await this.tmuxSessionManager.splitPane(
-          message.paneId ?? message.sessionId,
-          message.direction,
-          { command: message.command },
-        );
-        await this.postSessionsToWebview();
+        {
+          const workspacePath =
+            vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          await this.tmuxSessionManager.splitPane(
+            message.paneId ?? message.sessionId,
+            message.direction,
+            { command: message.command, workingDirectory: workspacePath },
+          );
+          await this.postSessionsToWebview();
+        }
         return;
       case "killPane":
         await this.tmuxSessionManager.killPane(message.paneId);
@@ -356,7 +418,7 @@ export class TerminalManagerDashboardProvider
    * @param webview The webview to generate HTML for
    * @returns The HTML string
    */
-  private static readonly HTML_VERSION = 11;
+  private static readonly HTML_VERSION = 13;
 
   private getHtmlContent(webview: vscode.Webview): string {
     const scriptUri = webview.asWebviewUri(
@@ -371,7 +433,7 @@ export class TerminalManagerDashboardProvider
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Terminal Managers v${TerminalManagerDashboardProvider.HTML_VERSION}</title>
+  <title>Terminal Dashboard v${TerminalDashboardProvider.HTML_VERSION}</title>
   <style>
     body {
       margin: 0;
@@ -749,7 +811,7 @@ export class TerminalManagerDashboardProvider
     </div>
     <div class="header-actions">
       <button id="create" class="primary" data-action="create" title="Create new tmux session">New tmux</button>
-      <button id="native-shell" data-action="switchNativeShell" title="Switch to native terminal">Native shell</button>
+      <button id="native-shell" data-action="createNativeShell" title="Create new native shell">New shell</button>
       <button id="refresh" data-action="refresh" title="Refresh session list">Refresh</button>
     </div>
   </div>
@@ -840,15 +902,16 @@ export class TerminalManagerDashboardProvider
 
     try {
       const panes = await this.tmuxSessionManager.listPanes(sessionId);
-      if (panes.length > 0) {
+      const targetPane = panes.find((p) => p.isActive) ?? panes[0];
+      if (targetPane) {
         await this.tmuxSessionManager.sendTextToPane(
-          panes[0].paneId,
+          targetPane.paneId,
           getToolLaunchCommand(toolInfo),
         );
       }
     } catch (error) {
       this.outputChannel?.appendLine(
-        `[TerminalManagerDashboardProvider] Failed to launch AI tool: ${error instanceof Error ? error.message : String(error)}`,
+        `[TerminalDashboardProvider] Failed to launch AI tool: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -862,6 +925,49 @@ export class TerminalManagerDashboardProvider
     sessionId: string,
   ): Promise<TmuxDashboardPaneDto[]> {
     return this.tmuxSessionManager.listPaneDtos(sessionId);
+  }
+
+  /**
+   * Builds native shell DTOs from InstanceStore records that have no tmux session.
+   * @param workspacePath The current workspace path for filtering
+   * @returns Array of native shell DTOs
+   */
+  private buildNativeShellDtos(workspacePath?: string): NativeShellDto[] {
+    if (!this.instanceStore) {
+      return [];
+    }
+
+    try {
+      const activeRecord = this.instanceStore.getActive();
+      const activeId = activeRecord?.config.id;
+
+      return this.instanceStore
+        .getAll()
+        .filter((record) => {
+          // Only include native shell instances (no tmux session)
+          if (record.runtime.tmuxSessionId) {
+            return false;
+          }
+          // Filter by workspace if available
+          if (workspacePath) {
+            const recordWorkspace = record.config.workspaceUri
+              ? vscode.Uri.parse(record.config.workspaceUri).fsPath
+              : undefined;
+            if (recordWorkspace !== workspacePath) {
+              return false;
+            }
+          }
+          return true;
+        })
+        .map((record) => ({
+          id: record.config.id,
+          label: record.config.label,
+          state: record.state,
+          isActive: record.config.id === activeId,
+        }));
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -898,7 +1004,7 @@ export class TerminalManagerDashboardProvider
     this.stopPolling();
     this.pollTimer = setInterval(() => {
       void this.postSessionsToWebview();
-    }, TerminalManagerDashboardProvider.POLL_INTERVAL_MS);
+    }, TerminalDashboardProvider.POLL_INTERVAL_MS);
   }
 
   private stopPolling(): void {

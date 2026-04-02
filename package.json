@@ -36,25 +36,32 @@
           "title": "Open AI Sidebar Terminal",
           "icon": "resources/opencode-activity-bar.svg"
         }
+      ],
+      "secondarySidebar": [
+        {
+          "id": "opencodeTuiTerminal",
+          "title": "Terminal",
+          "icon": "resources/opencode-activity-bar.svg"
+        }
       ]
     },
     "views": {
       "opencodeTuiContainer": [
         {
+          "id": "opencodeTui.terminalDashboard",
+          "name": "Open AI Sidebar Terminal",
+          "type": "webview",
+          "icon": "resources/opencode-activity-bar.svg",
+          "contextualTitle": "Open AI Sidebar Terminal"
+        }
+      ],
+      "opencodeTuiTerminal": [
+        {
           "id": "opencodeTui",
           "name": "Terminal",
           "type": "webview",
-          "icon": "$(terminal)",
+          "icon": "resources/opencode-activity-bar.svg",
           "contextualTitle": "OpenCode TUI"
-        }
-      ],
-      "explorer": [
-        {
-          "id": "opencodeTui.terminalManager",
-          "name": "Open AI Sidebar Terminal",
-          "type": "webview",
-          "icon": "$(server)",
-          "contextualTitle": "Open AI Sidebar Terminal"
         }
       ]
     },
@@ -233,26 +240,6 @@
           "command": "opencodeTui.restart",
           "when": "view == opencodeTui",
           "group": "navigation@1"
-        },
-        {
-          "command": "opencodeTui.tmuxRefresh",
-          "when": "view == opencodeTui.terminalManager",
-          "group": "navigation@1"
-        },
-        {
-          "command": "opencodeTui.tmuxCreateWindow",
-          "when": "view == opencodeTui.terminalManager",
-          "group": "navigation@2"
-        },
-        {
-          "command": "opencodeTui.tmuxNextWindow",
-          "when": "view == opencodeTui.terminalManager",
-          "group": "navigation@3"
-        },
-        {
-          "command": "opencodeTui.tmuxPrevWindow",
-          "when": "view == opencodeTui.terminalManager",
-          "group": "navigation@4"
         }
       ],
       "explorer/context": [
@@ -320,7 +307,7 @@
         },
         "opencodeTui.command": {
           "type": "string",
-          "default": "opencode -c",
+          "default": "opencode",
           "description": "Command to launch OpenCode with arguments"
         },
         "opencodeTui.fontSize": {
@@ -479,9 +466,7 @@
               "name": "opencode",
               "label": "OpenCode",
               "path": "",
-              "args": [
-                "-c"
-              ]
+              "args": []
             },
             {
               "name": "claude",
