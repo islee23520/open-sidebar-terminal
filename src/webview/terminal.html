@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src {{CSP_SOURCE}} 'unsafe-inline'; script-src 'nonce-{{NONCE}}';"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OpenCode TUI</title>
+    <link rel="stylesheet" href="{{CSS_URI}}" />
+  </head>
+  <body>
+    <span
+      class="font-preload"
+      aria-hidden="true"
+      style="font-family: {{FONT_FAMILY}}"
+      >ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&amp;*()_+-=[]{}|;':&quot;,./&lt;&gt;?`~</span
+    >
+    <div id="session-indicator" class="session-indicator hidden"></div>
+    <div
+      id="terminal-container"
+      data-font-size="{{FONT_SIZE}}"
+      data-font-family="{{FONT_FAMILY}}"
+      data-cursor-blink="{{CURSOR_BLINK}}"
+      data-cursor-style="{{CURSOR_STYLE}}"
+      data-scrollback="{{SCROLLBACK}}"
+    ></div>
+    <script nonce="{{NONCE}}" src="{{SCRIPT_URI}}"></script>
+  </body>
+</html>

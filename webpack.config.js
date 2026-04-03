@@ -1,4 +1,5 @@
 const path = require("path");
+const CopyPlugin = require("copy-webpack-plugin");
 
 const extensionConfig = {
   target: "node",
@@ -85,6 +86,22 @@ const webviewConfig = {
       },
     ],
   },
+  plugins: [
+    new CopyPlugin({
+      patterns: [
+        {
+          from: path.resolve(__dirname, "src/webview/*.css"),
+          to: path.resolve(__dirname, "dist/[name][ext]"),
+          globOptions: { ignore: [] },
+        },
+        {
+          from: path.resolve(__dirname, "src/webview/*.html"),
+          to: path.resolve(__dirname, "dist/[name][ext]"),
+          globOptions: { ignore: [] },
+        },
+      ],
+    }),
+  ],
   devtool: "nosources-source-map",
 };
 

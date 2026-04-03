@@ -3,6 +3,13 @@ import type * as vscodeTypes from "../test/mocks/vscode";
 import { TmuxSessionManager } from "../services/TmuxSessionManager";
 import { TerminalDashboardProvider } from "./TerminalDashboardProvider";
 
+vi.mock("fs", () => ({
+  default: {
+    readFileSync: vi.fn(() => "<html><body>{{CSP_SOURCE}}</body></html>"),
+  },
+  readFileSync: vi.fn(() => "<html><body>{{CSP_SOURCE}}</body></html>"),
+}));
+
 const vscode = await vi.importActual<typeof vscodeTypes>(
   "../test/mocks/vscode",
 );

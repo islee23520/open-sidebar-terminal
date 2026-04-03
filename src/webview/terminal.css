@@ -1,0 +1,46 @@
+body,
+html {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background-color: #1e1e1e;
+  display: flex;
+  flex-direction: column;
+}
+
+#terminal-container {
+  flex: 1;
+  height: 100%;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.session-indicator {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  font-size: 11px;
+  font-family: var(--vscode-font-family);
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  z-index: 10;
+  pointer-events: none;
+  opacity: 0.8;
+  transition: opacity 0.3s ease;
+}
+
+.session-indicator.hidden {
+  display: none;
+}
+
+.font-preload {
+  position: absolute;
+  left: -9999px;
+  visibility: hidden;
+}

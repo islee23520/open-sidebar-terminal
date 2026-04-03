@@ -10,6 +10,13 @@ import { PortManager } from "../services/PortManager";
 import { TerminalManager } from "../terminals/TerminalManager";
 import { TerminalProvider } from "./TerminalProvider";
 
+vi.mock("fs", () => ({
+  default: {
+    readFileSync: vi.fn(() => "<html><body>{{CSP_SOURCE}}</body></html>"),
+  },
+  readFileSync: vi.fn(() => "<html><body>{{CSP_SOURCE}}</body></html>"),
+}));
+
 const vscode = await vi.importActual<typeof vscodeTypes>(
   "../test/mocks/vscode",
 );

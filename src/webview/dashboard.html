@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src {{CSP_SOURCE}} 'unsafe-inline'; script-src 'nonce-{{NONCE}}';"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Terminal Dashboard v{{HTML_VERSION}}</title>
+    <link rel="stylesheet" href="{{CSS_URI}}" />
+  </head>
+  <body>
+    <div class="header">
+      <div class="header-main">
+        <div class="title">Terminal Dashboard</div>
+        <div class="workspace" id="workspace">Workspace: -</div>
+      </div>
+      <div class="header-actions">
+        <button
+          type="button"
+          id="create"
+          class="primary"
+          data-action="create"
+          title="Create new tmux session"
+        >
+          New tmux
+        </button>
+        <button
+          type="button"
+          id="native-shell"
+          data-action="createNativeShell"
+          title="Create new native shell"
+        >
+          New shell
+        </button>
+        <button
+          type="button"
+          id="toggle-scope"
+          data-action="toggleScope"
+          title="Toggle between workspace and global view"
+        >
+          Global
+        </button>
+        <button
+          type="button"
+          id="refresh"
+          data-action="refresh"
+          title="Refresh session list"
+        >
+          Refresh
+        </button>
+      </div>
+    </div>
+    <div class="return-banner" id="return-banner" style="display: none">
+      <span>Terminal is attached to a different workspace session</span>
+      <button type="button" class="primary" id="return-btn">
+        Return to <span id="return-workspace"></span>
+      </button>
+    </div>
+    <div id="session-list" class="session-list"></div>
+
+    <div id="ai-selector" class="ai-selector-backdrop">
+      <div class="ai-selector-card">
+        <div class="ai-selector-title">Launch AI Tool</div>
+        <div class="ai-selector-subtitle" id="ai-selector-session"></div>
+        <div class="ai-selector-options" id="ai-tool-options"></div>
+        <label class="ai-selector-save">
+          <input type="checkbox" id="ai-save-default" />
+          <span>Save as default</span>
+        </label>
+        <div class="ai-selector-hint">
+          ↑↓ Navigate · Enter Select · Esc Dismiss
+        </div>
+      </div>
+    </div>
+
+    <script nonce="{{NONCE}}" src="{{SCRIPT_URI}}"></script>
+  </body>
+</html>
