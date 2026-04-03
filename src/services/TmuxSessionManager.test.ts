@@ -131,6 +131,27 @@ describe("TmuxSessionManager", () => {
     expect(execFile).toHaveBeenCalledTimes(1);
   });
 
+  it("prefers the active session when multiple tmux sessions share a workspace", async () => {
+    mockExecSequence([
+      {
+        stdout: [
+          "repo-a-2\t0\t/workspaces/repo-a",
+          "repo-a-dev\t1\t/workspaces/repo-a",
+        ].join("\n"),
+      },
+    ]);
+
+    const session = await manager.findSessionForWorkspace("/workspaces/repo-a");
+
+    expect(session).toEqual({
+      id: "repo-a-dev",
+      name: "repo-a-dev",
+      workspace: "repo-a",
+      isActive: true,
+    });
+    expect(execFile).toHaveBeenCalledTimes(1);
+  });
+
   it("avoids wrong-session attachment on name collision by preferring workspace path", async () => {
     mockExecSequence([
       {
@@ -314,6 +335,21 @@ describe("TmuxSessionManager", () => {
         "select-pane",
         "-t",
         "%0",
+      ]);
+    });
+
+    it("selects the target window before selecting a pane in another window", async () => {
+      mockExecSequence([{ stdout: "" }, { stdout: "" }]);
+      await manager.selectPane("%3", "@2");
+      expect(vi.mocked(execFile).mock.calls[0]?.[1]).toEqual([
+        "select-window",
+        "-t",
+        "@2",
+      ]);
+      expect(vi.mocked(execFile).mock.calls[1]?.[1]).toEqual([
+        "select-pane",
+        "-t",
+        "%3",
       ]);
     });
 

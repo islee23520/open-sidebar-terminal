@@ -37,6 +37,14 @@ export interface TmuxPane {
   windowId?: string;
 }
 
+export interface TmuxPaneGeometry {
+  paneId: string;
+  paneLeft: number;
+  paneTop: number;
+  paneWidth: number;
+  paneHeight: number;
+}
+
 interface TmuxWindow {
   windowId: string;
   index: number;
@@ -144,12 +152,9 @@ export class TmuxSessionManager {
     workspacePath: string,
   ): Promise<EnsureTmuxSessionResult> {
     const discoveredSessions = await this.discoverSessionDetails();
-    const exactWorkspaceMatches = discoveredSessions.filter((entry) =>
-      this.pathsMatch(entry.workspacePath, workspacePath),
-    );
-
-    const existingSession = this.pickPreferredSession(
-      exactWorkspaceMatches,
+    const existingSession = this.selectWorkspaceSession(
+      discoveredSessions,
+      workspacePath,
       sessionName,
     );
 
@@ -184,6 +189,18 @@ export class TmuxSessionManager {
         isActive: true,
       },
     };
+  }
+
+  public async findSessionForWorkspace(
+    workspacePath: string,
+    preferredSessionName?: string,
+  ): Promise<TmuxSession | undefined> {
+    const discoveredSessions = await this.discoverSessionDetails();
+    return this.selectWorkspaceSession(
+      discoveredSessions,
+      workspacePath,
+      preferredSessionName,
+    );
   }
 
   public async attachSession(sessionName: string): Promise<void> {
@@ -377,15 +394,22 @@ export class TmuxSessionManager {
     }
   }
 
-  public async selectPane(paneId: string): Promise<void> {
+  public async selectPane(paneId: string, windowId?: string): Promise<void> {
     try {
-      console.log(`[DIAG:selectPane] paneId="${paneId}"`);
+      console.log(
+        `[DIAG:selectPane] paneId="${paneId}" windowId="${windowId ?? "none"}"`,
+      );
+      if (windowId) {
+        await this.runTmux(["select-window", "-t", windowId]);
+      }
       await this.runTmux(["select-pane", "-t", paneId]);
-      console.log(`[DIAG:selectPane] SUCCESS paneId="${paneId}"`);
+      console.log(
+        `[DIAG:selectPane] SUCCESS paneId="${paneId}" windowId="${windowId ?? "none"}"`,
+      );
       this._onPaneChanged.fire();
     } catch (error) {
       console.log(
-        `[DIAG:selectPane] FAILED paneId="${paneId}" error=${error instanceof Error ? error.message : String(error)}`,
+        `[DIAG:selectPane] FAILED paneId="${paneId}" windowId="${windowId ?? "none"}" error=${error instanceof Error ? error.message : String(error)}`,
       );
       if (this.isTmuxUnavailable(error)) {
         throw new TmuxUnavailableError();
@@ -429,11 +453,24 @@ export class TmuxSessionManager {
     }
   }
 
-  public async sendTextToPane(paneId: string, text: string): Promise<void> {
+  public async sendTextToPane(
+    paneId: string,
+    text: string,
+    options?: { submit?: boolean },
+  ): Promise<void> {
     try {
       const preview = text.length > 80 ? text.slice(0, 80) + "..." : text;
-      console.log(`[DIAG:sendTextToPane] paneId="${paneId}" text="${preview}"`);
-      await this.runTmux(["send-keys", "-t", paneId, text, "C-m"]);
+      const submit = options?.submit !== false;
+      console.log(
+        `[DIAG:sendTextToPane] paneId="${paneId}" text="${preview}" submit=${submit}`,
+      );
+      const args: string[] = ["send-keys", "-t", paneId];
+      if (submit) {
+        args.push(text, "C-m");
+      } else {
+        args.push("-l", text);
+      }
+      await this.runTmux(args);
       console.log(`[DIAG:sendTextToPane] SUCCESS paneId="${paneId}"`);
     } catch (error) {
       console.log(
@@ -522,6 +559,44 @@ export class TmuxSessionManager {
     }
   }
 
+  public async listVisiblePaneGeometry(
+    sessionId: string,
+  ): Promise<TmuxPaneGeometry[]> {
+    try {
+      const format =
+        "#{pane_id}\t#{pane_left}\t#{pane_top}\t#{pane_width}\t#{pane_height}";
+      const stdout = await this.runTmux([
+        "list-panes",
+        "-t",
+        sessionId,
+        "-F",
+        format,
+      ]);
+      return stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .map((line) => {
+          const [paneId, left, top, width, height] = line.split("\t");
+          return {
+            paneId: paneId ?? "",
+            paneLeft: Number(left),
+            paneTop: Number(top),
+            paneWidth: Number(width),
+            paneHeight: Number(height),
+          };
+        });
+    } catch (error) {
+      if (this.isNoSessionsError(error)) {
+        return [];
+      }
+      if (this.isTmuxUnavailable(error)) {
+        throw new TmuxUnavailableError();
+      }
+      throw error;
+    }
+  }
+
   public async listPaneDtos(
     sessionId: string,
   ): Promise<TmuxDashboardPaneDto[]> {
@@ -567,23 +642,47 @@ export class TmuxSessionManager {
 
   private pickPreferredSession(
     discoveredSessions: DiscoveredSession[],
-    preferredName: string,
+    preferredName?: string,
   ): TmuxSession | undefined {
     if (discoveredSessions.length === 0) {
       return undefined;
     }
 
-    const exactNameMatch = discoveredSessions.find(
-      ({ session }) =>
-        session.id === preferredName || session.name === preferredName,
+    if (preferredName) {
+      const exactNameMatch = discoveredSessions.find(
+        ({ session }) =>
+          session.id === preferredName || session.name === preferredName,
+      );
+      if (exactNameMatch) {
+        return exactNameMatch.session;
+      }
+    }
+
+    const activeSession = discoveredSessions.find(
+      ({ session }) => session.isActive,
     );
-    if (exactNameMatch) {
-      return exactNameMatch.session;
+    if (activeSession) {
+      return activeSession.session;
     }
 
     return discoveredSessions
       .slice()
       .sort((a, b) => a.session.id.localeCompare(b.session.id))[0]?.session;
+  }
+
+  private selectWorkspaceSession(
+    discoveredSessions: DiscoveredSession[],
+    workspacePath: string,
+    preferredSessionName?: string,
+  ): TmuxSession | undefined {
+    const exactWorkspaceMatches = discoveredSessions.filter((entry) =>
+      this.pathsMatch(entry.workspacePath, workspacePath),
+    );
+
+    return this.pickPreferredSession(
+      exactWorkspaceMatches,
+      preferredSessionName,
+    );
   }
 
   private resolveCollisionSafeSessionName(
