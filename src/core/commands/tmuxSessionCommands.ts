@@ -115,6 +115,7 @@ export function registerTmuxSessionCommands(
 
         const config = vscode.workspace.getConfiguration("opencodeTui");
         const configuredCommand = config.get<string>("command", "opencode -c");
+        const defaultAiTool = config.get<string>("defaultAiTool", "opencode");
 
         const newId = `${Date.now()}`;
         const newRecord = {
@@ -123,6 +124,7 @@ export function registerTmuxSessionCommands(
             workspaceUri,
             label: `OpenCode (${vscode.workspace.name || "Workspace"})`,
             command: configuredCommand,
+            selectedAiTool: defaultAiTool,
           },
           runtime: {},
           state: "disconnected" as const,
@@ -272,6 +274,34 @@ export function registerTmuxSessionCommands(
     },
   );
 
+  const killNativeShellCommand = vscode.commands.registerCommand(
+    "opencodeTui.killNativeShell",
+    async (instanceId?: string) => {
+      if (!instanceId || !deps.instanceController || !deps.instanceStore) {
+        return;
+      }
+
+      try {
+        const wasActive =
+          deps.instanceStore.getActive()?.config.id === instanceId;
+
+        await deps.instanceController.kill(instanceId);
+        deps.instanceStore.remove(instanceId);
+
+        if (wasActive) {
+          const remaining = deps.instanceStore.getAll();
+          if (remaining.length > 0) {
+            deps.instanceStore.setActive(remaining[0].config.id);
+          }
+        }
+      } catch (error) {
+        deps.outputChannel?.error(
+          `[killNativeShell] Failed to kill native shell ${instanceId}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    },
+  );
+
   return [
     openInNewWindowCommand,
     spawnForWorkspaceCommand,
@@ -279,6 +309,7 @@ export function registerTmuxSessionCommands(
     switchTmuxSessionCommand,
     createTmuxSessionCommand,
     killTmuxSessionCommand,
+    killNativeShellCommand,
     switchNativeShellCommand,
     openTerminalManagerCommand,
     browseTmuxSessionsCommand,

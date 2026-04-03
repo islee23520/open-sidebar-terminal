@@ -59,9 +59,15 @@ export function registerTerminalCommands(
     "opencodeTui.sendAtMention",
     () => {
       const editor = vscode.window.activeTextEditor;
-      if (editor && deps.contextSharingService) {
-        const fileRef =
-          deps.contextSharingService.formatFileRefWithLineNumbers(editor);
+      if (editor) {
+        const fileRef = deps.provider?.formatEditorReference(editor);
+        if (!fileRef) {
+          deps.outputChannel?.warn(
+            `[DIAG:sendAtMention] skipped — provider=${!!deps.provider} editor=${!!editor}`,
+          );
+          deps.sendTerminalCwd();
+          return;
+        }
         const terminalId = deps.getActiveTerminalId();
         deps.outputChannel?.info(
           `[DIAG:sendAtMention] terminalId="${terminalId}" fileRef="${fileRef}"`,
@@ -86,11 +92,8 @@ export function registerTerminalCommands(
         for (const tab of group.tabs) {
           if (tab.input instanceof vscode.TabInputText) {
             const uri = tab.input.uri;
-            if (
-              !uri.scheme.startsWith("untitled") &&
-              deps.contextSharingService
-            ) {
-              fileRefs.push(deps.contextSharingService.formatFileRef(uri));
+            if (!uri.scheme.startsWith("untitled") && deps.provider) {
+              fileRefs.push(deps.provider.formatUriReference(uri));
             }
           }
         }
@@ -135,6 +138,11 @@ export function registerTerminalCommands(
           return;
         }
 
+        if (!deps.provider) {
+          fileSendAccumulator = [];
+          return;
+        }
+
         const uniqueUris = [
           ...new Map(
             fileSendAccumulator.map((u: vscode.Uri) => [u.fsPath, u]),
@@ -142,7 +150,7 @@ export function registerTerminalCommands(
         ];
 
         const fileRefs = uniqueUris.map((u: vscode.Uri) =>
-          deps.contextSharingService!.formatFileRef(u),
+          deps.provider!.formatUriReference(u),
         );
         const allRefs = fileRefs.join(" ");
 

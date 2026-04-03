@@ -164,6 +164,7 @@ export class ExtensionLifecycle {
           this.tmuxSessionManager,
           logger.getChannel(),
           this.instanceStore,
+          this.tuiProvider,
         );
         const tmuxDashboardProvider = vscode.window.registerWebviewViewProvider(
           TerminalDashboardProvider.viewType,
