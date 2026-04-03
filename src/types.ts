@@ -39,7 +39,9 @@ export type WebviewMessage =
       sessionId: string;
       tool: string;
       savePreference: boolean;
-    };
+    }
+  | { type: "splitTmuxPane"; direction: "h" | "v" }
+  | { type: "killTmuxPane" };
 
 export type AiTool = string;
 
