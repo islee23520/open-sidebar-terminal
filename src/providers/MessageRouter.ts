@@ -64,7 +64,7 @@ export class MessageRouter {
     _instanceStore: InstanceStore | undefined,
   ) {}
 
-  public handleMessage(rawMessage: unknown): void {
+  public async handleMessage(rawMessage: unknown): Promise<void> {
     if (!rawMessage || typeof rawMessage !== "object") {
       return;
     }
@@ -144,11 +144,23 @@ export class MessageRouter {
         void this.provider.createTmuxSession();
         break;
       case "createTmuxWindow":
-        void this.provider.createTmuxWindow();
+        try {
+          await this.provider.createTmuxWindow();
+        } catch (error) {
+          this.logger.error(
+            `[MessageRouter] createTmuxWindow failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
         break;
       case "navigateTmuxWindow":
         if (message.direction === "next" || message.direction === "prev") {
-          void this.provider.navigateTmuxWindow(message.direction);
+          try {
+            await this.provider.navigateTmuxWindow(message.direction);
+          } catch (error) {
+            this.logger.error(
+              `[MessageRouter] navigateTmuxWindow failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
         }
         break;
       case "navigateTmuxSession":
@@ -169,14 +181,32 @@ export class MessageRouter {
         break;
       case "splitTmuxPane":
         if (message.direction === "h" || message.direction === "v") {
-          void this.provider.splitTmuxPane(message.direction);
+          try {
+            await this.provider.splitTmuxPane(message.direction);
+          } catch (error) {
+            this.logger.error(
+              `[MessageRouter] splitTmuxPane failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
         }
         break;
       case "zoomTmuxPane":
-        void this.provider.zoomTmuxPane();
+        try {
+          await this.provider.zoomTmuxPane();
+        } catch (error) {
+          this.logger.error(
+            `[MessageRouter] zoomTmuxPane failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
         break;
       case "killTmuxPane":
-        void this.provider.killTmuxPane();
+        try {
+          await this.provider.killTmuxPane();
+        } catch (error) {
+          this.logger.error(
+            `[MessageRouter] killTmuxPane failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
         break;
       case "sendTmuxPromptChoice":
         if (message.choice === "tmux") {

@@ -771,18 +771,28 @@ export class SessionRuntime {
       this.resolveTmuxSessionIdForInstance(this.activeInstanceId) ??
       (await this.resolveFallbackTmuxSessionId());
     if (!sessionId) {
+      this.logger.warn(
+        `[TerminalProvider] Cannot create tmux window: no tmux session resolved (selected=${this.selectedTmuxSessionId}, instance=${this.activeInstanceId})`,
+      );
       return undefined;
     }
-    const panes = await this.tmuxSessionManager.listPanes(sessionId, {
-      activeWindowOnly: true,
-    });
-    const activePane = panes.find((p) => p.isActive) ?? panes[0];
-    const result = await this.tmuxSessionManager.createWindow(
-      sessionId,
-      activePane?.currentPath ?? this.resolveWorkspacePathForTmuxFallback(),
-    );
-    await this.tmuxSessionManager.selectWindow(result.windowId);
-    return result;
+    try {
+      const panes = await this.tmuxSessionManager.listPanes(sessionId, {
+        activeWindowOnly: true,
+      });
+      const activePane = panes.find((p) => p.isActive) ?? panes[0];
+      const result = await this.tmuxSessionManager.createWindow(
+        sessionId,
+        activePane?.currentPath ?? this.resolveWorkspacePathForTmuxFallback(),
+      );
+      await this.tmuxSessionManager.selectWindow(result.windowId);
+      return result;
+    } catch (error) {
+      this.logger.error(
+        `[TerminalProvider] Failed to create tmux window: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return undefined;
+    }
   }
 
   private async getActivePaneInSelectedWindow(
@@ -803,12 +813,21 @@ export class SessionRuntime {
       this.resolveTmuxSessionIdForInstance(this.activeInstanceId) ??
       (await this.resolveFallbackTmuxSessionId());
     if (!sessionId) {
+      this.logger.warn(
+        `[TerminalProvider] Cannot navigate tmux window: no tmux session resolved (selected=${this.selectedTmuxSessionId}, instance=${this.activeInstanceId})`,
+      );
       return;
     }
-    if (direction === "next") {
-      await this.tmuxSessionManager.nextWindow(sessionId);
-    } else {
-      await this.tmuxSessionManager.prevWindow(sessionId);
+    try {
+      if (direction === "next") {
+        await this.tmuxSessionManager.nextWindow(sessionId);
+      } else {
+        await this.tmuxSessionManager.prevWindow(sessionId);
+      }
+    } catch (error) {
+      this.logger.error(
+        `[TerminalProvider] Failed to navigate tmux window: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -823,24 +842,34 @@ export class SessionRuntime {
       this.resolveTmuxSessionIdForInstance(this.activeInstanceId) ??
       (await this.resolveFallbackTmuxSessionId());
     if (!sessionId) {
+      this.logger.warn(
+        `[TerminalProvider] Cannot split tmux pane: no tmux session resolved (selected=${this.selectedTmuxSessionId}, instance=${this.activeInstanceId})`,
+      );
       return undefined;
     }
-    const panes = await this.tmuxSessionManager.listPanes(sessionId, {
-      activeWindowOnly: true,
-    });
-    const activePane = panes.find((p) => p.isActive) ?? panes[0];
-    if (activePane) {
-      return await this.tmuxSessionManager.splitPane(
-        activePane.paneId,
-        direction,
-        {
-          workingDirectory:
-            activePane.currentPath ??
-            this.resolveWorkspacePathForTmuxFallback(),
-        },
+    try {
+      const panes = await this.tmuxSessionManager.listPanes(sessionId, {
+        activeWindowOnly: true,
+      });
+      const activePane = panes.find((p) => p.isActive) ?? panes[0];
+      if (activePane) {
+        return await this.tmuxSessionManager.splitPane(
+          activePane.paneId,
+          direction,
+          {
+            workingDirectory:
+              activePane.currentPath ??
+              this.resolveWorkspacePathForTmuxFallback(),
+          },
+        );
+      }
+      return undefined;
+    } catch (error) {
+      this.logger.error(
+        `[TerminalProvider] Failed to split tmux pane: ${error instanceof Error ? error.message : String(error)}`,
       );
+      return undefined;
     }
-    return undefined;
   }
 
   public async zoomTmuxPane(): Promise<void> {
@@ -852,12 +881,21 @@ export class SessionRuntime {
       this.resolveTmuxSessionIdForInstance(this.activeInstanceId) ??
       (await this.resolveFallbackTmuxSessionId());
     if (!sessionId) {
+      this.logger.warn(
+        `[TerminalProvider] Cannot zoom tmux pane: no tmux session resolved (selected=${this.selectedTmuxSessionId}, instance=${this.activeInstanceId})`,
+      );
       return;
     }
-    const panes = await this.tmuxSessionManager.listPanes(sessionId);
-    const activePane = panes.find((p) => p.isActive) ?? panes[0];
-    if (activePane) {
-      await this.tmuxSessionManager.zoomPane(activePane.paneId);
+    try {
+      const panes = await this.tmuxSessionManager.listPanes(sessionId);
+      const activePane = panes.find((p) => p.isActive) ?? panes[0];
+      if (activePane) {
+        await this.tmuxSessionManager.zoomPane(activePane.paneId);
+      }
+    } catch (error) {
+      this.logger.error(
+        `[TerminalProvider] Failed to zoom tmux pane: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -870,17 +908,26 @@ export class SessionRuntime {
       this.resolveTmuxSessionIdForInstance(this.activeInstanceId) ??
       (await this.resolveFallbackTmuxSessionId());
     if (!sessionId) {
+      this.logger.warn(
+        `[TerminalProvider] Cannot kill tmux pane: no tmux session resolved (selected=${this.selectedTmuxSessionId}, instance=${this.activeInstanceId})`,
+      );
       return;
     }
-    const panes = await this.tmuxSessionManager.listPanes(sessionId, {
-      activeWindowOnly: true,
-    });
-    if (panes.length <= 1) {
-      return;
-    }
-    const activePane = panes.find((p) => p.isActive) ?? panes[0];
-    if (activePane) {
-      await this.tmuxSessionManager.killPane(activePane.paneId);
+    try {
+      const panes = await this.tmuxSessionManager.listPanes(sessionId, {
+        activeWindowOnly: true,
+      });
+      if (panes.length <= 1) {
+        return;
+      }
+      const activePane = panes.find((p) => p.isActive) ?? panes[0];
+      if (activePane) {
+        await this.tmuxSessionManager.killPane(activePane.paneId);
+      }
+    } catch (error) {
+      this.logger.error(
+        `[TerminalProvider] Failed to kill tmux pane: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
