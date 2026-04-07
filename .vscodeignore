@@ -40,3 +40,20 @@ dev-install.sh
 
 # Dependencies are automatically included by vsce
 # node_modules/** is already handled by vsce (includes 'dependencies', excludes 'devDependencies')
+
+# Source maps
+dist/**/*.map
+
+# AI agent knowledge base
+AGENTS.md
+
+# Test coverage
+coverage/
+
+# Misc
+skills-lock.json
+vitest.config.ts
+package-lock.json
+memories/
+*.log
+*.png

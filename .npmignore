@@ -1,0 +1,62 @@
+# Source
+src/
+
+# Tests & coverage
+coverage/
+**/*.test.ts
+**/*.spec.ts
+
+# Dev configuration
+tsconfig.json
+webpack.config.js
+vitest.config.ts
+.eslintrc*
+.eslintrc.json
+.prettierrc*
+.editorconfig
+skills-lock.json
+
+# Source maps (never ship to consumers)
+dist/**/*.map
+
+# Build artifacts
+build/
+*.vsix
+
+# Documentation (keep README.md)
+AGENTS.md
+CHANGELOG.md
+SECURITY.md
+TESTING.md
+PUBLISHING.md
+docs/
+memories/
+
+# Scripts
+dev-install.sh
+
+# CI/CD
+.github/
+
+# Git
+.git/
+.gitignore
+.vscodeignore
+
+# AI agent artifacts
+.agents/
+.claude/
+.omc/
+.omx/
+.opencode/
+.remember/
+.sisyphus/
+.synapse/
+
+# OS / misc
+.DS_Store
+*.log
+*.png
+
+# Lock file (consumers use their own)
+package-lock.json

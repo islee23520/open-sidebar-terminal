@@ -88,12 +88,12 @@ export class OpenCodeCodeActionProvider implements vscode.CodeActionProvider {
     document: vscode.TextDocument,
   ): vscode.CodeAction {
     const action = {
-      title: "Explain and Fix (OpenCode)",
+      title: "Explain and Fix (Terminal)",
       kind: vscode.CodeActionKind.QuickFix,
       diagnostics: [diagnostic],
       isPreferred: true,
       command: {
-        title: "Explain and Fix (OpenCode)",
+        title: "Explain and Fix (Terminal)",
         command: "opensidebarterm.explainAndFix",
         arguments: [
           {
