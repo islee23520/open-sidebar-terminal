@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { InstanceController } from "./InstanceController";
+import { ConnectionResolver } from "./ConnectionResolver";
 import { TerminalManager } from "../terminals/TerminalManager";
-import { InstanceStore, InstanceId, InstanceRecord } from "./InstanceStore";
+import { InstanceStore } from "./InstanceStore";
 import { PortManager } from "./PortManager";
 import type * as vscodeTypes from "../test/mocks/vscode";
 
@@ -24,7 +25,12 @@ describe("InstanceController", () => {
   let terminalManager: TerminalManager;
   let instanceStore: InstanceStore;
   let portManager: PortManager;
-  let outputChannel: vscodeTypes.OutputChannel;
+  let outputChannel: ReturnType<typeof vscode.window.createOutputChannel>;
+
+  const expectPresent = <T>(value: T | undefined): T => {
+    expect(value).toBeDefined();
+    return value as T;
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -78,8 +84,12 @@ describe("InstanceController", () => {
       expect(terminalKey1).not.toBe(terminalKey2);
 
       // Verify both terminals exist in manager
-      const terminal1 = terminalManager.getTerminal(terminalKey1!);
-      const terminal2 = terminalManager.getTerminal(terminalKey2!);
+      const terminal1 = terminalManager.getTerminal(
+        expectPresent(terminalKey1),
+      );
+      const terminal2 = terminalManager.getTerminal(
+        expectPresent(terminalKey2),
+      );
 
       expect(terminal1).toBeDefined();
       expect(terminal2).toBeDefined();
@@ -98,8 +108,10 @@ describe("InstanceController", () => {
         const port = instance?.runtime.port;
 
         expect(port).toBeDefined();
-        expect(ports.has(port!)).toBe(false); // No port collision
-        ports.add(port!);
+        const resolvedPort = expectPresent(port);
+
+        expect(ports.has(resolvedPort)).toBe(false); // No port collision
+        ports.add(resolvedPort);
       }
 
       // Verify all ports are unique
@@ -144,8 +156,8 @@ describe("InstanceController", () => {
       // Port can be reused (may or may not be same port, but should not throw)
       expect(port1).toBeDefined();
       expect(port2).toBeDefined();
-      expect(portManager.isPortAvailable(port1!)).toBe(true);
-      expect(portManager.isPortAvailable(port2!)).toBe(false);
+      expect(portManager.isPortAvailable(expectPresent(port1))).toBe(true);
+      expect(portManager.isPortAvailable(expectPresent(port2))).toBe(false);
     });
   });
 
@@ -160,9 +172,9 @@ describe("InstanceController", () => {
       const instance2 = instanceStore.get("instance-2");
       const instance3 = instanceStore.get("instance-3");
 
-      const terminalKey1 = instance1?.runtime.terminalKey!;
-      const terminalKey2 = instance2?.runtime.terminalKey!;
-      const terminalKey3 = instance3?.runtime.terminalKey!;
+      const terminalKey1 = expectPresent(instance1?.runtime.terminalKey);
+      const terminalKey2 = expectPresent(instance2?.runtime.terminalKey);
+      const terminalKey3 = expectPresent(instance3?.runtime.terminalKey);
 
       // Verify all terminals exist before dispose
       expect(terminalManager.getTerminal(terminalKey1)).toBeDefined();
@@ -194,8 +206,8 @@ describe("InstanceController", () => {
       const instance1 = instanceStore.get("instance-1");
       const instance2 = instanceStore.get("instance-2");
 
-      const port1 = instance1?.runtime.port!;
-      const port2 = instance2?.runtime.port!;
+      const port1 = expectPresent(instance1?.runtime.port);
+      const port2 = expectPresent(instance2?.runtime.port);
 
       // Verify ports are in use
       expect(portManager.isPortAvailable(port1)).toBe(false);
@@ -248,11 +260,11 @@ describe("InstanceController", () => {
       const instance1 = instanceStore.get("instance-1");
       const instance2 = instanceStore.get("instance-2");
 
-      const terminalKey1 = instance1?.runtime.terminalKey!;
-      const terminalKey2 = instance2?.runtime.terminalKey!;
+      const terminalKey1 = expectPresent(instance1?.runtime.terminalKey);
+      const terminalKey2 = expectPresent(instance2?.runtime.terminalKey);
 
-      const port1 = instance1?.runtime.port!;
-      const port2 = instance2?.runtime.port!;
+      const port1 = expectPresent(instance1?.runtime.port);
+      const port2 = expectPresent(instance2?.runtime.port);
 
       // Verify PortManager mappings
       expect(portManager.getPortForTerminal(terminalKey1)).toBe(port1);
@@ -270,8 +282,8 @@ describe("InstanceController", () => {
       await controller.spawn("instance-1");
 
       const instance1 = instanceStore.get("instance-1");
-      const terminalKey1 = instance1?.runtime.terminalKey!;
-      const port1 = instance1?.runtime.port!;
+      const terminalKey1 = expectPresent(instance1?.runtime.terminalKey);
+      const port1 = expectPresent(instance1?.runtime.port);
 
       // Verify mapping exists
       expect(portManager.getPortForTerminal(terminalKey1)).toBe(port1);
@@ -322,6 +334,286 @@ describe("InstanceController", () => {
       // Should see stopping → disconnected
       expect(stateChanges).toContain("stopping");
       expect(stateChanges).toContain("disconnected");
+    });
+  });
+
+  describe("Branch coverage", () => {
+    it("spawns with preferred port and serialized args", async () => {
+      const createTerminalSpy = vi.spyOn(terminalManager, "createTerminal");
+
+      await controller.spawn("instance-args", {
+        args: ["serve", "foo bar"],
+        preferredPort: 20001,
+      });
+
+      const record = instanceStore.get("instance-args");
+
+      expect(record?.config.args).toEqual(["serve", "foo bar"]);
+      expect(record?.config.preferredPort).toBe(20001);
+      expect(record?.runtime.port).toBe(20001);
+      expect(createTerminalSpy).toHaveBeenCalledWith(
+        "opencode-instance-instance-args",
+        "opencode serve 'foo bar'",
+        {
+          _EXTENSION_OPENCODE_PORT: "20001",
+          OPENCODE_CALLER: "vscode",
+        },
+        20001,
+      );
+    });
+
+    it("releases reserved ports when terminal creation fails", async () => {
+      vi.spyOn(terminalManager, "createTerminal").mockImplementation(() => {
+        throw new Error("terminal boom");
+      });
+
+      await expect(
+        controller.spawn("instance-fail", { preferredPort: 20002 }),
+      ).rejects.toThrow("terminal boom");
+
+      const record = instanceStore.get("instance-fail");
+
+      expect(record?.state).toBe("error");
+      expect(record?.error).toBe("terminal boom");
+      expect(record?.runtime.terminalKey).toBe(
+        "opencode-instance-instance-fail",
+      );
+      expect(record?.runtime.port).toBeUndefined();
+      expect(
+        portManager.getPortForTerminal("opencode-instance-instance-fail"),
+      ).toBeUndefined();
+      expect(portManager.isPortAvailable(20002)).toBe(true);
+      expect(outputChannel.error).toHaveBeenCalledWith(
+        "[InstanceController] Failed to spawn 'instance-fail': terminal boom",
+      );
+    });
+
+    it("records connect failures as error state", async () => {
+      vi.spyOn(portManager, "assignPortToTerminal").mockImplementation(() => {
+        throw new Error("connect boom");
+      });
+
+      await expect(
+        controller.connect("instance-connect", 20003),
+      ).rejects.toThrow("connect boom");
+
+      const record = instanceStore.get("instance-connect");
+
+      expect(record?.state).toBe("error");
+      expect(record?.error).toBe("connect boom");
+      expect(record?.runtime.terminalKey).toBe(
+        "opencode-instance-instance-connect",
+      );
+      expect(record?.runtime.port).toBeUndefined();
+      expect(outputChannel.error).toHaveBeenCalledWith(
+        "[InstanceController] Failed to connect 'instance-connect': connect boom",
+      );
+    });
+
+    it("disconnects without releasing the running terminal or port", async () => {
+      await controller.spawn("instance-disconnect", { preferredPort: 20004 });
+
+      await controller.disconnect("instance-disconnect");
+
+      const record = instanceStore.get("instance-disconnect");
+
+      expect(record?.state).toBe("disconnected");
+      expect(record?.error).toBeUndefined();
+      expect(record?.runtime.port).toBe(20004);
+      expect(
+        terminalManager.getTerminal("opencode-instance-instance-disconnect"),
+      ).toBeDefined();
+      expect(portManager.isPortAvailable(20004)).toBe(false);
+    });
+
+    it("resolves with resolver success and updates the runtime port", async () => {
+      const resolver = {
+        resolve: vi.fn().mockResolvedValue(20005),
+      } as unknown as ConnectionResolver;
+
+      controller = new InstanceController(
+        terminalManager,
+        instanceStore,
+        portManager,
+        outputChannel,
+        resolver,
+      );
+
+      instanceStore.upsert({
+        config: { id: "instance-resolve-success" },
+        runtime: { port: 19999 },
+        state: "disconnected",
+      });
+
+      await expect(
+        controller.resolve("instance-resolve-success"),
+      ).resolves.toBe(20005);
+
+      const record = instanceStore.get("instance-resolve-success");
+
+      expect(record?.state).toBe("connected");
+      expect(record?.runtime.port).toBe(20005);
+      expect(record?.error).toBeUndefined();
+    });
+
+    it("returns undefined when resolver reports no healthy port", async () => {
+      const resolver = {
+        resolve: vi.fn().mockResolvedValue(undefined),
+      } as unknown as ConnectionResolver;
+
+      controller = new InstanceController(
+        terminalManager,
+        instanceStore,
+        portManager,
+        outputChannel,
+        resolver,
+      );
+
+      instanceStore.upsert({
+        config: { id: "instance-resolve-miss" },
+        runtime: {},
+        state: "disconnected",
+      });
+
+      await expect(
+        controller.resolve("instance-resolve-miss"),
+      ).resolves.toBeUndefined();
+
+      const record = instanceStore.get("instance-resolve-miss");
+
+      expect(record?.state).toBe("error");
+      expect(record?.error).toBe("Unable to resolve a healthy port.");
+    });
+
+    it("returns undefined and logs when resolver throws", async () => {
+      const resolver = {
+        resolve: vi.fn().mockRejectedValue(new Error("resolver boom")),
+      } as unknown as ConnectionResolver;
+
+      controller = new InstanceController(
+        terminalManager,
+        instanceStore,
+        portManager,
+        outputChannel,
+        resolver,
+      );
+
+      instanceStore.upsert({
+        config: { id: "instance-resolve-error" },
+        runtime: {},
+        state: "disconnected",
+      });
+
+      await expect(
+        controller.resolve("instance-resolve-error"),
+      ).resolves.toBeUndefined();
+
+      const record = instanceStore.get("instance-resolve-error");
+
+      expect(record?.state).toBe("error");
+      expect(record?.error).toBe("resolver boom");
+      expect(outputChannel.error).toHaveBeenCalledWith(
+        "[InstanceController] Failed to resolve 'instance-resolve-error': resolver boom",
+      );
+    });
+
+    it("falls back to the stored runtime port when no resolver exists", async () => {
+      instanceStore.upsert({
+        config: { id: "instance-fallback" },
+        runtime: { port: 20006 },
+        state: "error",
+        error: "stale",
+      });
+
+      await expect(controller.resolve("instance-fallback")).resolves.toBe(
+        20006,
+      );
+
+      const record = instanceStore.get("instance-fallback");
+
+      expect(record?.state).toBe("connected");
+      expect(record?.runtime.port).toBe(20006);
+      expect(record?.error).toBeUndefined();
+    });
+
+    it("falls back to disconnected when no resolver and no port exist", async () => {
+      instanceStore.upsert({
+        config: { id: "instance-fallback-none" },
+        runtime: {},
+        state: "error",
+        error: "stale",
+      });
+
+      await expect(
+        controller.resolve("instance-fallback-none"),
+      ).resolves.toBeUndefined();
+
+      const record = instanceStore.get("instance-fallback-none");
+
+      expect(record?.state).toBe("disconnected");
+      expect(record?.error).toBeUndefined();
+    });
+
+    it("preserves port ownership and records kill failures", async () => {
+      await controller.spawn("instance-kill-error", { preferredPort: 20007 });
+      vi.spyOn(terminalManager, "killTerminal").mockImplementation(() => {
+        throw new Error("kill boom");
+      });
+
+      await expect(controller.kill("instance-kill-error")).rejects.toThrow(
+        "kill boom",
+      );
+
+      const record = instanceStore.get("instance-kill-error");
+
+      expect(record?.state).toBe("error");
+      expect(record?.error).toBe("kill boom");
+      expect(record?.runtime.port).toBe(20007);
+      expect(portManager.isPortAvailable(20007)).toBe(false);
+      expect(outputChannel.error).toHaveBeenCalledWith(
+        "[InstanceController] Failed to kill 'instance-kill-error': kill boom",
+      );
+    });
+
+    it("disposes multiple records and cleans mapped ports with fallback keys", () => {
+      const killTerminalSpy = vi.spyOn(terminalManager, "killTerminal");
+
+      const fallbackTerminalKey = "opencode-instance-instance-dispose-a";
+      const explicitTerminalKey = "custom-terminal";
+      portManager.assignPortToTerminal(fallbackTerminalKey, 20008);
+      portManager.assignPortToTerminal(explicitTerminalKey, 20009);
+
+      instanceStore.upsert({
+        config: { id: "instance-dispose-a" },
+        runtime: { port: 20008, pid: 101 },
+        state: "connected",
+      });
+      instanceStore.upsert({
+        config: { id: "instance-dispose-b" },
+        runtime: { terminalKey: explicitTerminalKey, port: 20009, pid: 202 },
+        state: "connected",
+      });
+
+      controller.dispose();
+
+      expect(killTerminalSpy).toHaveBeenCalledWith(fallbackTerminalKey);
+      expect(killTerminalSpy).toHaveBeenCalledWith(explicitTerminalKey);
+      expect(portManager.isPortAvailable(20008)).toBe(true);
+      expect(portManager.isPortAvailable(20009)).toBe(true);
+      expect(instanceStore.get("instance-dispose-a")).toMatchObject({
+        state: "disconnected",
+        runtime: { port: 20008, pid: undefined },
+        error: undefined,
+      });
+      expect(instanceStore.get("instance-dispose-b")).toMatchObject({
+        state: "disconnected",
+        runtime: {
+          terminalKey: explicitTerminalKey,
+          port: 20009,
+          pid: undefined,
+        },
+        error: undefined,
+      });
     });
   });
 });
