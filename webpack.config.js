@@ -33,6 +33,11 @@ const extensionConfig = {
           },
         ],
       },
+      {
+        test: /\.html$/,
+        resourceQuery: /raw/,
+        type: "asset/source",
+      },
     ],
   },
   devtool: "nosources-source-map",

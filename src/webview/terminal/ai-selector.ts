@@ -1,14 +1,5 @@
+import html from "./ai-selector.html?raw";
+
 export function renderAiSelector(): string {
-  return `<div id="ai-selector" class="ai-selector-backdrop">
-      <div class="ai-selector-card">
-        <div class="ai-selector-title">Launch AI Tool</div>
-        <div class="ai-selector-subtitle" id="ai-selector-session"></div>
-        <div class="ai-selector-options" id="ai-tool-options"></div>
-        <label class="ai-selector-save">
-          <input type="checkbox" id="ai-save-default" />
-          <span>Save as default</span>
-        </label>
-        <div class="ai-selector-hint">↑↓ Navigate · Enter Select · Esc Dismiss</div>
-      </div>
-    </div>`;
+  return html;
 }

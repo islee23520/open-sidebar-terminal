@@ -237,7 +237,7 @@ export class TerminalProvider
 
     if (config.get<boolean>("collapseSecondaryBarOnEditorOpen", false)) {
       await vscode.commands.executeCommand(
-        "workbench.action.toggleAuxiliaryBar",
+        "workbench.action.closeAuxiliaryBar",
       );
       await vscode.commands.executeCommand("workbench.action.closeSidebar");
     }

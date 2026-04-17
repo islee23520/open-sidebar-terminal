@@ -41,7 +41,6 @@ export class ExtensionLifecycle {
   private portManager: PortManager | undefined;
   private tmuxSessionManager: TmuxSessionManager | undefined;
   private terminalDashboardProvider: TerminalDashboardProvider | undefined;
-  private previousTabGroupCount = 0;
   private activated = false;
   private tuiProviderRegistration: vscode.Disposable | undefined;
 
@@ -130,33 +129,6 @@ export class ExtensionLifecycle {
 
       context.subscriptions.push(this.contextManager);
       context.subscriptions.push(this.instanceDiscoveryService);
-      this.previousTabGroupCount = vscode.window.tabGroups.all.length;
-      context.subscriptions.push(
-        vscode.window.tabGroups.onDidChangeTabGroups(() => {
-          const currentTabGroupCount = vscode.window.tabGroups.all.length;
-          const previousTabGroupCount = this.previousTabGroupCount;
-
-          this.previousTabGroupCount = currentTabGroupCount;
-
-          if (currentTabGroupCount <= previousTabGroupCount) {
-            return;
-          }
-
-          const shouldCollapseSecondaryBar = vscode.workspace
-            .getConfiguration("opencodeTui")
-            .get<boolean>("collapseSecondaryBarOnEditorOpen", false);
-
-          if (!shouldCollapseSecondaryBar) {
-            return;
-          }
-
-          void vscode.commands.executeCommand(
-            "workbench.action.closeAuxiliaryBar",
-          );
-          void vscode.commands.executeCommand("workbench.action.closeSidebar");
-        }),
-      );
-
       this.instanceQuickPick = new InstanceQuickPick(
         this.instanceStore,
         this.instanceDiscoveryService,

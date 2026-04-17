@@ -1,0 +1,30 @@
+<div id="tmux-prompt" class="ai-selector-backdrop hidden">
+  <div class="ai-selector-card">
+    <div class="ai-selector-title">No Tmux Sessions Found</div>
+    <div class="ai-selector-subtitle" id="tmux-prompt-workspace"></div>
+    <div class="ai-selector-options">
+      <button
+        type="button"
+        id="tmux-prompt-tmux"
+        class="ai-selector-option"
+        data-tmux-only
+      >
+        <div class="ai-option-icon">🗔</div>
+        <div class="ai-option-details">
+          <div class="ai-option-name">Create Tmux Session</div>
+          <div class="ai-option-desc">
+            Start a new tmux session for this workspace
+          </div>
+        </div>
+      </button>
+      <button type="button" id="tmux-prompt-shell" class="ai-selector-option">
+        <div class="ai-option-icon">⌘</div>
+        <div class="ai-option-details">
+          <div class="ai-option-name">Normal Shell</div>
+          <div class="ai-option-desc">Start a regular shell without tmux</div>
+        </div>
+      </button>
+    </div>
+    <div class="ai-selector-hint">Click to select</div>
+  </div>
+</div>

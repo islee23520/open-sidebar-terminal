@@ -95,6 +95,11 @@ export function initTerminal(
   const refreshTerminal = () => terminal.refresh(0, terminal.rows - 1);
   container.addEventListener("focusin", refreshTerminal);
   container.addEventListener("click", refreshTerminal);
+  container.addEventListener(
+    "mousedown",
+    keyboardHandler.clearShortcutSequence,
+  );
+  window.addEventListener("blur", keyboardHandler.clearShortcutSequence);
 
   const cleanupVisibility = setupVisibilityHandling(
     terminal,
@@ -168,6 +173,11 @@ export function initTerminal(
     cleanupVisibility();
     container.removeEventListener("focusin", refreshTerminal);
     container.removeEventListener("click", refreshTerminal);
+    container.removeEventListener(
+      "mousedown",
+      keyboardHandler.clearShortcutSequence,
+    );
+    window.removeEventListener("blur", keyboardHandler.clearShortcutSequence);
     window.removeEventListener("dragover", dragOverHandler);
     window.removeEventListener("dragleave", dragLeaveHandler);
     window.removeEventListener("drop", dropHandler);

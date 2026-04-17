@@ -1418,7 +1418,7 @@ describe("TerminalProvider", () => {
     await provider.openInEditorTab();
 
     expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
-      "workbench.action.toggleAuxiliaryBar",
+      "workbench.action.closeAuxiliaryBar",
     );
     expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
       "workbench.action.closeSidebar",
@@ -1436,7 +1436,7 @@ describe("TerminalProvider", () => {
     await provider.openInEditorTab();
 
     expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
-      "workbench.action.toggleAuxiliaryBar",
+      "workbench.action.closeAuxiliaryBar",
     );
     expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
       "workbench.action.closeSidebar",
