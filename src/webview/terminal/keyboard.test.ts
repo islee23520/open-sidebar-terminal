@@ -19,65 +19,53 @@ const createKeyboardEvent = (
   return event;
 };
 
+const expectKeyboardHandling = (
+  keyboard: ReturnType<typeof createKeyboardHandler>,
+  init: KeyboardEventInit & { code: string },
+  expectedAllowed: boolean,
+  expectedDefaultPrevented: boolean,
+) => {
+  const event = createKeyboardEvent(init);
+
+  expect(keyboard.handler(event)).toBe(expectedAllowed);
+  expect(event.defaultPrevented).toBe(expectedDefaultPrevented);
+};
+
 describe("createKeyboardHandler", () => {
   describe("on macOS", () => {
     const makeKeyboard = () => createKeyboardHandler({ isMac: true });
 
     it("passes Cmd+letter chords through to VS Code", () => {
-      const keyboard = makeKeyboard();
-      const event = createKeyboardEvent({
+      expectKeyboardHandling(makeKeyboard(), {
         metaKey: true,
         key: "b",
         code: "KeyB",
-      });
-
-      const allowed = keyboard.handler(event);
-
-      expect(allowed).toBe(false);
-      expect(event.defaultPrevented).toBe(false);
+      }, false, false);
     });
 
     it("passes Cmd+Shift+letter chords through to VS Code", () => {
-      const keyboard = makeKeyboard();
-      const event = createKeyboardEvent({
+      expectKeyboardHandling(makeKeyboard(), {
         metaKey: true,
         shiftKey: true,
         key: "P",
         code: "KeyP",
-      });
-
-      const allowed = keyboard.handler(event);
-
-      expect(allowed).toBe(false);
-      expect(event.defaultPrevented).toBe(false);
+      }, false, false);
     });
 
     it("passes Cmd+digit chords through to VS Code", () => {
-      const keyboard = makeKeyboard();
-      const event = createKeyboardEvent({
+      expectKeyboardHandling(makeKeyboard(), {
         metaKey: true,
         key: "1",
         code: "Digit1",
-      });
-
-      const allowed = keyboard.handler(event);
-
-      expect(allowed).toBe(false);
-      expect(event.defaultPrevented).toBe(false);
+      }, false, false);
     });
 
     it("keeps Ctrl+letter chords with xterm for terminal control characters", () => {
-      const keyboard = makeKeyboard();
-      const event = createKeyboardEvent({
+      expectKeyboardHandling(makeKeyboard(), {
         ctrlKey: true,
         key: "c",
         code: "KeyC",
-      });
-
-      const allowed = keyboard.handler(event);
-
-      expect(allowed).toBe(true);
-      expect(event.defaultPrevented).toBe(true);
+      }, true, true);
     });
   });
 
@@ -85,90 +73,56 @@ describe("createKeyboardHandler", () => {
     const makeKeyboard = () => createKeyboardHandler({ isMac: false });
 
     it("passes Ctrl+letter chords through to VS Code", () => {
-      const keyboard = makeKeyboard();
-      const event = createKeyboardEvent({
+      expectKeyboardHandling(makeKeyboard(), {
         ctrlKey: true,
         key: "b",
         code: "KeyB",
-      });
-
-      const allowed = keyboard.handler(event);
-
-      expect(allowed).toBe(false);
-      expect(event.defaultPrevented).toBe(false);
+      }, false, false);
     });
 
     it("passes Ctrl+Shift+letter chords through to VS Code", () => {
-      const keyboard = makeKeyboard();
-      const event = createKeyboardEvent({
+      expectKeyboardHandling(makeKeyboard(), {
         ctrlKey: true,
         shiftKey: true,
         key: "P",
         code: "KeyP",
-      });
-
-      const allowed = keyboard.handler(event);
-
-      expect(allowed).toBe(false);
-      expect(event.defaultPrevented).toBe(false);
+      }, false, false);
     });
 
     it("passes Ctrl+digit chords through to VS Code", () => {
-      const keyboard = makeKeyboard();
-      const event = createKeyboardEvent({
+      expectKeyboardHandling(makeKeyboard(), {
         ctrlKey: true,
         key: "1",
         code: "Digit1",
-      });
-
-      const allowed = keyboard.handler(event);
-
-      expect(allowed).toBe(false);
-      expect(event.defaultPrevented).toBe(false);
+      }, false, false);
     });
 
     it("keeps stray Cmd+letter chords with xterm", () => {
-      const keyboard = makeKeyboard();
-      const event = createKeyboardEvent({
+      expectKeyboardHandling(makeKeyboard(), {
         metaKey: true,
         key: "b",
         code: "KeyB",
-      });
-
-      const allowed = keyboard.handler(event);
-
-      expect(allowed).toBe(true);
-      expect(event.defaultPrevented).toBe(true);
+      }, true, true);
     });
   });
 
   describe("platform agnostic", () => {
     it("does not intercept plain letter keys", () => {
       const keyboard = createKeyboardHandler({ isMac: true });
-      const event = createKeyboardEvent({
+      expectKeyboardHandling(keyboard, {
         key: "l",
         code: "KeyL",
-      });
-
-      const allowed = keyboard.handler(event);
-
-      expect(allowed).toBe(true);
-      expect(event.defaultPrevented).toBe(false);
+      }, true, false);
     });
 
     it("does not intercept Alt-modified chords", () => {
       const keyboard = createKeyboardHandler({ isMac: true });
-      const event = createKeyboardEvent({
+      expectKeyboardHandling(keyboard, {
         ctrlKey: true,
         altKey: true,
         key: "m",
         code: "KeyM",
-      });
-
-      const allowed = keyboard.handler(event);
-
-      expect(allowed).toBe(true);
-      expect(event.defaultPrevented).toBe(false);
+      }, true, false);
     });
 
     it("keeps Cmd+Ctrl combos with xterm on either platform", () => {

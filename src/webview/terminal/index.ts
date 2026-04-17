@@ -118,7 +118,6 @@ export function initTerminal(
   };
 
   const dragLeaveHandler = (e: DragEvent) => {
-    // Only reset opacity when drag leaves the entire window
     if (!e.relatedTarget) {
       container.style.opacity = "1";
     }
