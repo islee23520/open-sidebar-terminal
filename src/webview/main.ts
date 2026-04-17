@@ -180,9 +180,7 @@ function setupAiToolSelectorEvents(): void {
     // VS Code keybindings don't fire when xterm has focus,
     // so we handle this directly in the webview.
     const isToggleTmuxCmd =
-      event.altKey &&
-      (event.metaKey || event.ctrlKey) &&
-      event.key.toLowerCase() === "m";
+      event.altKey && (event.metaKey || event.ctrlKey) && event.code === "KeyM";
     if (isToggleTmuxCmd) {
       if (currentSessionId) {
         event.preventDefault();
