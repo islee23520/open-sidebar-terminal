@@ -30,6 +30,11 @@ vi.mock("node-pty", async () => {
 });
 
 describe("SessionRuntime - Workspace Session Resolution", () => {
+  const flushAsyncWork = async (): Promise<void> => {
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+
   let sessionRuntime: SessionRuntime;
   let mockTmuxSessionManager: TmuxSessionManager;
   let mockTerminalManager: TerminalManager;
@@ -48,6 +53,9 @@ describe("SessionRuntime - Workspace Session Resolution", () => {
       (sessionId: string, sessionName: string, forceShow?: boolean) => void
     >
   >;
+  let exitHandler:
+    | ((id: string) => void)
+    | undefined;
   let mockCallbacks: {
     postMessage: (message: unknown) => void;
     onActiveInstanceChanged: (instanceId: string) => void;
@@ -108,7 +116,10 @@ describe("SessionRuntime - Workspace Session Resolution", () => {
       resizeTerminal: vi.fn(),
       createTerminal: vi.fn(),
       onData: vi.fn(() => ({ dispose: vi.fn() })),
-      onExit: vi.fn(() => ({ dispose: vi.fn() })),
+      onExit: vi.fn((callback: (id: string) => void) => {
+        exitHandler = callback;
+        return { dispose: vi.fn() };
+      }),
     } as unknown as TerminalManager;
 
     mockPortManager = {
@@ -166,6 +177,8 @@ describe("SessionRuntime - Workspace Session Resolution", () => {
       mockAiToolRegistry,
       mockCallbacks,
     );
+
+    exitHandler = undefined;
   });
 
   afterEach(() => {
@@ -784,6 +797,75 @@ describe("SessionRuntime - Workspace Session Resolution", () => {
         ).checkPaneChanges(),
       ).resolves.toBeUndefined();
       expect(postMessageMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("terminal exit restoration", () => {
+    it("switches to a replacement workspace tmux session when the attached tmux process exits", async () => {
+      upsertInstance({
+        tmuxSessionId: "workspace-session",
+        workspaceUri: "file:///workspace/project-a",
+      });
+      (sessionRuntime as unknown as { isStarted: boolean }).isStarted = true;
+      (
+        sessionRuntime as unknown as { selectedTmuxSessionId?: string }
+      ).selectedTmuxSessionId = "workspace-session";
+
+      vi.mocked(
+        mockTmuxSessionManager.findSessionForWorkspace,
+      ).mockResolvedValue({
+        id: "replacement-session",
+      } as Awaited<ReturnType<TmuxSessionManager["findSessionForWorkspace"]>>);
+
+      const switchSpy = vi
+        .spyOn(sessionRuntime, "switchToTmuxSession")
+        .mockResolvedValue();
+
+      sessionRuntime.reconnectListeners();
+      expect(exitHandler).toBeDefined();
+
+      exitHandler?.("default");
+
+      await flushAsyncWork();
+
+      expect(switchSpy).toHaveBeenCalledWith("replacement-session");
+
+      expect(instanceStore.get("default")?.runtime.tmuxSessionId).toBeUndefined();
+      expect(mockPortManager.releaseTerminalPorts).toHaveBeenCalledWith(
+        "default",
+      );
+      expect(postMessageMock).not.toHaveBeenCalledWith({
+        type: "terminalExited",
+      });
+    });
+
+    it("falls back to native shell when the attached tmux process exits with no replacement", async () => {
+      upsertInstance({
+        tmuxSessionId: "workspace-session",
+        workspaceUri: "file:///workspace/project-a",
+      });
+      (sessionRuntime as unknown as { isStarted: boolean }).isStarted = true;
+
+      const nativeShellSpy = vi
+        .spyOn(sessionRuntime, "switchToNativeShell")
+        .mockResolvedValue();
+
+      sessionRuntime.reconnectListeners();
+      expect(exitHandler).toBeDefined();
+
+      exitHandler?.("default");
+
+      await flushAsyncWork();
+
+      expect(nativeShellSpy).toHaveBeenCalled();
+
+      expect(instanceStore.get("default")?.runtime.tmuxSessionId).toBeUndefined();
+      expect(mockPortManager.releaseTerminalPorts).toHaveBeenCalledWith(
+        "default",
+      );
+      expect(postMessageMock).not.toHaveBeenCalledWith({
+        type: "terminalExited",
+      });
     });
   });
 

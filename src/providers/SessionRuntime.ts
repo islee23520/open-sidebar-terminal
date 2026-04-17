@@ -431,12 +431,72 @@ export class SessionRuntime {
 
     this.exitListener = this.terminalManager.onExit((id) => {
       if (id === this.activeInstanceId) {
+        const exitedTmuxSessionId =
+          this.selectedTmuxSessionId ??
+          this.resolveTmuxSessionIdForInstance(this.activeInstanceId);
+
+        if (exitedTmuxSessionId && this.isStarted) {
+          void this.restoreAfterAttachedTmuxSessionExit(exitedTmuxSessionId);
+          return;
+        }
+
         this.resetState();
         this.callbacks.postMessage({
           type: "terminalExited",
         });
       }
     });
+  }
+
+  private async restoreAfterAttachedTmuxSessionExit(
+    exitedSessionId: string,
+  ): Promise<void> {
+    const fallbackWorkspacePath = this.resolveWorkspacePathForTmuxFallback();
+
+    if (this.selectedTmuxSessionId === exitedSessionId) {
+      this.selectedTmuxSessionId = undefined;
+    }
+
+    if (this.instanceStore) {
+      const records = this.instanceStore.getAll();
+      for (const record of records) {
+        if (record.runtime.tmuxSessionId === exitedSessionId) {
+          this.portManager.releaseTerminalPorts(record.config.id);
+          this.instanceStore.upsert({
+            ...record,
+            runtime: {
+              ...record.runtime,
+              tmuxSessionId: undefined,
+              port: undefined,
+            },
+          });
+        }
+      }
+    }
+
+    try {
+      const replacementSessionId = fallbackWorkspacePath
+        ? await this.findReplacementTmuxSession(
+            fallbackWorkspacePath,
+            exitedSessionId,
+          )
+        : undefined;
+
+      if (replacementSessionId) {
+        await this.switchToTmuxSession(replacementSessionId);
+        return;
+      }
+
+      await this.switchToNativeShell();
+    } catch (error) {
+      this.logger.error(
+        `[TerminalProvider] Failed to restore after tmux exit: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      this.resetState();
+      this.callbacks.postMessage({
+        type: "terminalExited",
+      });
+    }
   }
 
   public async pollForHttpReadiness(): Promise<void> {
