@@ -11,12 +11,6 @@ export function setupTmuxCommandButton(
   });
 }
 
-export function setupKillPaneButton(): void {
-  document.getElementById("btn-kill-pane")?.addEventListener("click", () => {
-    postMessage({ type: "killTmuxPane" });
-  });
-}
-
 export function setupReloadButton(): void {
   document.getElementById("btn-restart")?.addEventListener("click", () => {
     postMessage({ type: "requestRestart" });

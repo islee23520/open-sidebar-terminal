@@ -8,7 +8,6 @@ import { initTerminal } from "./terminal";
 import { createMessageHandler, type MessageHandlerCallbacks } from "./messages";
 import {
   setupEditorAttachmentButton,
-  setupKillPaneButton,
   setupReloadButton,
   setupTmuxCommandButton,
 } from "./toolbar";
@@ -48,7 +47,6 @@ const callbacks: MessageHandlerCallbacks = {
     const toolbar = document.getElementById("tmux-toolbar");
     const label = document.getElementById("tmux-session-label");
     const toolbarControls = document.querySelector(".toolbar-controls");
-    const killPaneBtn = document.getElementById("btn-kill-pane");
     if ("sessionName" in message && message.sessionName) {
       currentSessionId = message.sessionId;
       if (toolbar) toolbar.classList.remove("hidden");
@@ -61,9 +59,6 @@ const callbacks: MessageHandlerCallbacks = {
       }
       if (toolbarControls) {
         toolbarControls.classList.remove("hidden");
-      }
-      if (killPaneBtn) {
-        killPaneBtn.toggleAttribute("disabled", !message.canKillPane);
       }
     } else {
       currentSessionId = null;
@@ -135,7 +130,6 @@ function initApp(): void {
     messageHandler.fitAddon = instance.fitAddon;
   }
 
-  setupKillPaneButton();
   setupReloadButton();
   setupEditorAttachmentButton();
   setupTmuxCommandButton(() => currentSessionId);
