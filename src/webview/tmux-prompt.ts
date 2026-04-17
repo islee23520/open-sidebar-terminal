@@ -8,10 +8,8 @@ export interface TmuxPromptCallbacks {
 }
 
 let visible = false;
-let workspaceName: string | null = null;
 
 export function show(wsName: string): void {
-  workspaceName = wsName;
   visible = true;
 
   const workspaceEl = document.getElementById("tmux-prompt-workspace");
@@ -28,7 +26,6 @@ export function show(wsName: string): void {
 
 export function hide(): void {
   visible = false;
-  workspaceName = null;
   const backdrop = document.getElementById("tmux-prompt");
   if (backdrop) {
     backdrop.classList.add("hidden");
