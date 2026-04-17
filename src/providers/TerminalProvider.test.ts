@@ -290,12 +290,12 @@ describe("TerminalProvider", () => {
     expect(rawSpy).toHaveBeenCalledWith("choose-tree", undefined);
   });
 
-  it("opens the terminal renderer in an editor tab", () => {
+  it("opens the terminal renderer in an editor tab", async () => {
     mockConfiguration();
     provider = createProvider();
     resolveProvider(provider);
 
-    provider.openInEditorTab();
+    await provider.openInEditorTab();
 
     expect(vscode.window.createWebviewPanel).toHaveBeenCalledWith(
       "opencodeTui.terminalEditor",
@@ -352,7 +352,7 @@ describe("TerminalProvider", () => {
     provider = createProvider();
     const { view } = resolveProvider(provider);
 
-    provider.openInEditorTab();
+    await provider.openInEditorTab();
     const panel = vi.mocked(vscode.window.createWebviewPanel).mock.results[0]
       ?.value as any;
     const disposeListener = vi.mocked(panel.onDidDispose).mock.calls[0]?.[0] as
@@ -1392,12 +1392,12 @@ describe("TerminalProvider", () => {
     expect(startSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("opens the terminal renderer in an editor tab and locks its editor group", () => {
+  it("opens the terminal renderer in an editor tab and locks its editor group", async () => {
     mockConfiguration();
     provider = createProvider();
     resolveProvider(provider);
 
-    provider.openInEditorTab();
+    await provider.openInEditorTab();
 
     expect(vscode.window.createWebviewPanel).toHaveBeenCalledWith(
       "opencodeTui.terminalEditor",
@@ -1410,12 +1410,12 @@ describe("TerminalProvider", () => {
     );
   });
 
-  it("closes the sidebar when opening the editor tab and collapse-on-open is enabled", () => {
+  it("closes the sidebar when opening the editor tab and collapse-on-open is enabled", async () => {
     mockConfiguration({ collapseSecondaryBarOnEditorOpen: true });
     provider = createProvider();
     resolveProvider(provider);
 
-    provider.openInEditorTab();
+    await provider.openInEditorTab();
 
     expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
       "workbench.action.closeAuxiliaryBar",
@@ -1428,12 +1428,12 @@ describe("TerminalProvider", () => {
     );
   });
 
-  it("keeps the sidebar open when opening the editor tab and collapse-on-open is disabled", () => {
+  it("keeps the sidebar open when opening the editor tab and collapse-on-open is disabled", async () => {
     mockConfiguration({ collapseSecondaryBarOnEditorOpen: false });
     provider = createProvider();
     resolveProvider(provider);
 
-    provider.openInEditorTab();
+    await provider.openInEditorTab();
 
     expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
       "workbench.action.closeAuxiliaryBar",
@@ -1446,17 +1446,17 @@ describe("TerminalProvider", () => {
     );
   });
 
-  it("reuses an existing editor panel instead of creating another one", () => {
+  it("reuses an existing editor panel instead of creating another one", async () => {
     mockConfiguration();
     provider = createProvider();
     resolveProvider(provider);
 
-    provider.openInEditorTab();
+    await provider.openInEditorTab();
     const panel = vi.mocked(vscode.window.createWebviewPanel).mock.results[0]
       ?.value as any;
     const focusSpy = vi.spyOn(provider, "focus");
 
-    provider.openInEditorTab();
+    await provider.openInEditorTab();
 
     expect(vscode.window.createWebviewPanel).toHaveBeenCalledTimes(1);
     expect(panel.reveal).toHaveBeenCalledWith(vscode.ViewColumn.Active);
@@ -1467,7 +1467,7 @@ describe("TerminalProvider", () => {
     );
   });
 
-  it("replays the active session state to the editor panel so the toolbar stays visible", () => {
+  it("replays the active session state to the editor panel so the toolbar stays visible", async () => {
     mockConfiguration();
     provider = createProvider();
     const runtime = (provider as any).sessionRuntime;
@@ -1479,7 +1479,7 @@ describe("TerminalProvider", () => {
     );
     resolveProvider(provider);
 
-    provider.openInEditorTab();
+    await provider.openInEditorTab();
 
     const panel = vi.mocked(vscode.window.createWebviewPanel).mock.results[0]
       ?.value as any;

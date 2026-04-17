@@ -217,7 +217,7 @@ export class TerminalProvider
     this.openInEditorTab();
   }
 
-  public openInEditorTab(): void {
+  public async openInEditorTab(): Promise<void> {
     if (this._panel) {
       this._panel.reveal(vscode.ViewColumn.Active);
       this.focus();
@@ -236,11 +236,13 @@ export class TerminalProvider
     this.initializeEditorPanel(panel);
 
     if (config.get<boolean>("collapseSecondaryBarOnEditorOpen", false)) {
-      void vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar");
-      void vscode.commands.executeCommand("workbench.action.closeSidebar");
+      await vscode.commands.executeCommand(
+        "workbench.action.closeAuxiliaryBar",
+      );
+      await vscode.commands.executeCommand("workbench.action.closeSidebar");
     }
 
-    void vscode.commands.executeCommand("workbench.action.lockEditorGroup");
+    await vscode.commands.executeCommand("workbench.action.lockEditorGroup");
   }
 
   public async deserializeWebviewPanel(

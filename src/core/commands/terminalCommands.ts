@@ -193,7 +193,7 @@ export function registerTerminalCommands(
   const openInEditorCommand = vscode.commands.registerCommand(
     "opencodeTui.openTerminalInEditor",
     () => {
-      deps.provider?.openInEditorTab();
+      void deps.provider?.openInEditorTab();
     },
   );
 
