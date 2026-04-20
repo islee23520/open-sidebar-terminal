@@ -19,6 +19,12 @@ describe("renderTerminalHtml", () => {
     expect(html).toContain('id="btn-toggle-editor-attachment"');
     expect(html).toContain('id="terminal-container"');
     expect(html).toContain('id="dashboard-container"');
+    expect(html).toContain('id="dashboard-new-tmux"');
+    expect(html).toContain('id="dashboard-refresh"');
+    expect(html).toContain('id="btn-toggle-dashboard"');
+    expect(html).not.toContain('id="dashboard-close"');
+    expect(html).not.toContain('id="dashboard-new-shell"');
+    expect(html).not.toContain('id="dashboard-toggle-scope"');
     expect(html).toContain('id="ai-selector"');
     expect(html).toContain('id="tmux-prompt"');
   });

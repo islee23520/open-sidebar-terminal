@@ -24,3 +24,9 @@ export function setupEditorAttachmentButton(): void {
       postMessage({ type: "toggleEditorAttachment" });
     });
 }
+
+export function setupDashboardToggleButton(toggleDashboard: () => void): void {
+  document.getElementById("btn-toggle-dashboard")?.addEventListener("click", () => {
+    toggleDashboard();
+  });
+}

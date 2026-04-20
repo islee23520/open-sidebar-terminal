@@ -23,6 +23,8 @@ html {
   align-items: center;
   gap: 2px;
   padding: 2px 6px;
+  position: relative;
+  z-index: 600;
   background: var(--vscode-editorGroupHeader-tabsBackground, #252526);
   border-bottom: 1px solid var(--vscode-panel-border, #474747);
   font-family: var(--vscode-font-family);
