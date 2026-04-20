@@ -71,9 +71,6 @@ describe("MessageRouter", () => {
       switchToTmuxSession: vi.fn(async () => undefined),
       killTmuxSession: vi.fn(async () => undefined),
       createTmuxSession: vi.fn(async () => "tmux-new"),
-      createTmuxWindow: vi.fn(async () => undefined),
-      navigateTmuxWindow: vi.fn(async () => undefined),
-      navigateTmuxSession: vi.fn(async () => undefined),
       toggleDashboard: vi.fn(),
       toggleEditorAttachment: vi.fn(async () => undefined),
       restart: vi.fn(),
@@ -94,9 +91,7 @@ describe("MessageRouter", () => {
       launchAiTool: vi.fn(async () => undefined),
       showAiToolSelector: vi.fn(async () => undefined),
       executeRawTmuxCommand: vi.fn(async () => ""),
-      splitTmuxPane: vi.fn(async () => "pane-2"),
       zoomTmuxPane: vi.fn(async () => undefined),
-      killTmuxPane: vi.fn(async () => undefined),
       getSelectedTmuxSessionId: vi.fn(() => "tmux-selected"),
       isTmuxAvailable: vi.fn(() => true),
     };
@@ -227,17 +222,11 @@ describe("MessageRouter", () => {
 
     await router.handleMessage({ type: "openUrl", url: "https://example.com" });
     await router.handleMessage({ type: "listTerminals" });
-    await router.handleMessage({ type: "getClipboard" });
     await router.handleMessage({ type: "setClipboard", text: "copied" });
     await router.handleMessage({ type: "triggerPaste" });
     await router.handleMessage({ type: "switchSession", sessionId: "tmux-a" });
     await router.handleMessage({ type: "killSession", sessionId: "tmux-b" });
     await router.handleMessage({ type: "createTmuxSession" });
-    await router.handleMessage({
-      type: "navigateTmuxSession",
-      direction: "next",
-    });
-    await router.handleMessage({ type: "switchNativeShell" });
     await router.handleMessage({
       type: "launchAiTool",
       sessionId: "tmux-c",
@@ -268,17 +257,12 @@ describe("MessageRouter", () => {
     expect(vscode.env.openExternal).toHaveBeenCalledWith(
       expect.objectContaining({ scheme: "https" }),
     );
-    expect(provider.postWebviewMessage).toHaveBeenCalledWith({
-      type: "clipboardContent",
-      text: "clipboard text",
-    });
     expect(vscode.env.clipboard.writeText).toHaveBeenCalledWith("copied");
     expect(provider.pasteText).toHaveBeenCalledWith("clipboard text");
     expect(provider.switchToTmuxSession).toHaveBeenCalledWith("tmux-a");
     expect(provider.killTmuxSession).toHaveBeenCalledWith("tmux-b");
     expect(provider.createTmuxSession).toHaveBeenCalledTimes(2);
-    expect(provider.navigateTmuxSession).toHaveBeenCalledWith("next");
-    expect(provider.switchToNativeShell).toHaveBeenCalledTimes(2);
+    expect(provider.switchToNativeShell).toHaveBeenCalledTimes(1);
     expect(provider.launchAiTool).toHaveBeenCalledWith(
       "tmux-c",
       "claude",
@@ -296,46 +280,6 @@ describe("MessageRouter", () => {
     expect(provider.toggleDashboard).toHaveBeenCalledTimes(1);
     expect(provider.toggleEditorAttachment).toHaveBeenCalledTimes(1);
     expect(vscode.window.showTextDocument).toHaveBeenCalledTimes(1);
-  });
-
-  it("routes terminalAction variants and ignores missing payloads", async () => {
-    const externalTerminal = createMockTerminal("External", "/workspace/app");
-    vscode.window.terminals = [externalTerminal];
-
-    await router.handleMessage({
-      type: "terminalAction",
-      action: "focus",
-      terminalName: "External",
-    });
-    await router.handleMessage({
-      type: "terminalAction",
-      action: "sendCommand",
-      terminalName: "External",
-      command: "npm test",
-    });
-    await router.handleMessage({
-      type: "terminalAction",
-      action: "capture",
-      terminalName: "External",
-    });
-    await router.handleMessage({
-      type: "terminalAction",
-      action: "sendCommand",
-      terminalName: "External",
-    });
-    await router.handleMessage({
-      type: "terminalAction",
-      action: "focus",
-    });
-
-    expect(externalTerminal.show).toHaveBeenCalledTimes(1);
-    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
-      "Allow OpenCode to send commands to external terminals?",
-      "Yes",
-      "Yes, don't ask again",
-      "No",
-    );
-    expect(captureManager.startCapture).toHaveBeenCalledWith(externalTerminal);
   });
 
   it("routes filesDropped with shift and pane fallback or direct terminal writes", async () => {
@@ -727,7 +671,6 @@ describe("MessageRouter", () => {
     router.handleReady(undefined, undefined);
     await router.handlePaste();
     await router.handleSetClipboard("x");
-    await router.handleGetClipboard();
 
     expect(provider.resizeActiveTerminal).toHaveBeenCalledWith(132, 44);
     expect(terminalManager.writeToTerminal).not.toHaveBeenCalled();
@@ -739,53 +682,17 @@ describe("MessageRouter", () => {
     });
   });
 
-  it("logs bridge errors for tmux actions and ignores invalid directions", async () => {
-    provider.createTmuxWindow = vi.fn(async () => {
-      throw new Error("window boom");
-    });
-    provider.navigateTmuxWindow = vi.fn(async () => {
-      throw new Error("nav boom");
-    });
-    provider.splitTmuxPane = vi.fn(async () => {
-      throw new Error("split boom");
-    });
+  it("logs bridge errors for tmux actions", async () => {
     provider.zoomTmuxPane = vi.fn(async () => {
       throw new Error("zoom boom");
-    });
-    provider.killTmuxPane = vi.fn(async () => {
-      throw new Error("kill boom");
     });
 
     const errorSpy = vi.spyOn(logger, "error");
 
-    await router.handleMessage({ type: "createTmuxWindow" });
-    await router.handleMessage({
-      type: "navigateTmuxWindow",
-      direction: "next",
-    });
-    await router.handleMessage({
-      type: "navigateTmuxWindow",
-      direction: "bad",
-    });
-    await router.handleMessage({ type: "splitTmuxPane", direction: "h" });
-    await router.handleMessage({ type: "splitTmuxPane", direction: "x" });
     await router.handleMessage({ type: "zoomTmuxPane" });
-    await router.handleMessage({ type: "killTmuxPane" });
 
     expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("createTmuxWindow failed: window boom"),
-    );
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("navigateTmuxWindow failed: nav boom"),
-    );
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("splitTmuxPane failed: split boom"),
-    );
-    expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining("zoomTmuxPane failed: zoom boom"),
-    );
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("killTmuxPane failed: kill boom"),
     );
   });
 
@@ -856,11 +763,4 @@ describe("MessageRouter", () => {
     );
   });
 
-  it("warns when terminal actions target unknown terminals", async () => {
-    const warnSpy = vi.spyOn(logger, "warn");
-
-    await router.handleTerminalAction("focus", "Missing");
-
-    expect(warnSpy).toHaveBeenCalledWith("Terminal not found: Missing");
-  });
 });

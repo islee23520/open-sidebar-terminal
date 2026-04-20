@@ -126,16 +126,12 @@ describe("Types", () => {
       const createMessage: WebviewMessage = {
         type: "createTmuxSession",
       };
-      const nativeMessage: WebviewMessage = {
-        type: "switchNativeShell",
-      };
 
       expect(switchMessage.type).toBe("switchSession");
       expect(switchMessage.sessionId).toBe("workspace-a");
       expect(killMessage.type).toBe("killSession");
       expect(killMessage.sessionId).toBe("workspace-a");
       expect(createMessage.type).toBe("createTmuxSession");
-      expect(nativeMessage.type).toBe("switchNativeShell");
     });
 
     it("should accept executeTmuxCommand messages for supported toolbar commands", () => {

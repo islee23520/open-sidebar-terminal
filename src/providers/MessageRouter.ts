@@ -18,15 +18,13 @@ import {
   WebviewMessage,
 } from "../types";
 import type { TmuxRawSubcommand, TmuxWebviewCommandId } from "../types";
+import { isWindowsAbsolutePath } from "../utils/pathUtils";
 
 export interface MessageRouterProviderBridge {
   startOpenCode(): Promise<void>;
   switchToTmuxSession(sessionId: string): Promise<void>;
   killTmuxSession(sessionId: string): Promise<void>;
   createTmuxSession(): Promise<string | undefined>;
-  createTmuxWindow(): Promise<void>;
-  navigateTmuxWindow(direction: "next" | "prev"): Promise<void>;
-  navigateTmuxSession(direction: "next" | "prev"): Promise<void>;
   toggleDashboard(): void;
   toggleEditorAttachment(): Promise<void>;
   restart(): void;
@@ -57,9 +55,7 @@ export interface MessageRouterProviderBridge {
     targetPaneId?: string,
   ): Promise<void>;
   executeRawTmuxCommand(subcommand: string, args?: string[]): Promise<string>;
-  splitTmuxPane(direction: "h" | "v"): Promise<string | undefined>;
   zoomTmuxPane(): Promise<void>;
-  killTmuxPane(): Promise<void>;
   getSelectedTmuxSessionId(): string | undefined;
   isTmuxAvailable(): boolean;
 }
@@ -118,18 +114,6 @@ export class MessageRouter {
       case "listTerminals":
         void this.handleListTerminals();
         break;
-      case "terminalAction":
-        if (message.action && typeof message.terminalName === "string") {
-          void this.handleTerminalAction(
-            message.action,
-            message.terminalName,
-            message.command,
-          );
-        }
-        break;
-      case "getClipboard":
-        void this.handleGetClipboard();
-        break;
       case "setClipboard":
         if (typeof message.text === "string") {
           void this.handleSetClipboard(message.text);
@@ -156,34 +140,6 @@ export class MessageRouter {
       case "createTmuxSession":
         void this.provider.createTmuxSession();
         break;
-      case "createTmuxWindow":
-        try {
-          await this.provider.createTmuxWindow();
-        } catch (error) {
-          this.logger.error(
-            `[MessageRouter] createTmuxWindow failed: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-        break;
-      case "navigateTmuxWindow":
-        if (message.direction === "next" || message.direction === "prev") {
-          try {
-            await this.provider.navigateTmuxWindow(message.direction);
-          } catch (error) {
-            this.logger.error(
-              `[MessageRouter] navigateTmuxWindow failed: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        }
-        break;
-      case "navigateTmuxSession":
-        if (message.direction === "next" || message.direction === "prev") {
-          void this.provider.navigateTmuxSession(message.direction);
-        }
-        break;
-      case "switchNativeShell":
-        void this.provider.switchToNativeShell();
-        break;
       case "launchAiTool":
         void this.provider.launchAiTool(
           message.sessionId,
@@ -192,32 +148,12 @@ export class MessageRouter {
           message.targetPaneId,
         );
         break;
-      case "splitTmuxPane":
-        if (message.direction === "h" || message.direction === "v") {
-          try {
-            await this.provider.splitTmuxPane(message.direction);
-          } catch (error) {
-            this.logger.error(
-              `[MessageRouter] splitTmuxPane failed: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          }
-        }
-        break;
       case "zoomTmuxPane":
         try {
           await this.provider.zoomTmuxPane();
         } catch (error) {
           this.logger.error(
             `[MessageRouter] zoomTmuxPane failed: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-        break;
-      case "killTmuxPane":
-        try {
-          await this.provider.killTmuxPane();
-        } catch (error) {
-          this.logger.error(
-            `[MessageRouter] killTmuxPane failed: ${error instanceof Error ? error.message : String(error)}`,
           );
         }
         break;
@@ -387,8 +323,11 @@ export class MessageRouter {
 
       if (vscode.Uri.parse(filePath).scheme === "file") {
         uri = vscode.Uri.file(filePath);
-      } else if (normalizedPath.startsWith("/")) {
-        uri = vscode.Uri.file(normalizedPath);
+      } else if (
+        normalizedPath.startsWith("/") ||
+        isWindowsAbsolutePath(filePath)
+      ) {
+        uri = vscode.Uri.file(filePath);
       } else {
         const workspaceFolders = vscode.workspace.workspaceFolders;
         if (workspaceFolders && workspaceFolders.length > 0) {
@@ -525,20 +464,6 @@ export class MessageRouter {
     } catch (error) {
       this.logger.error(
         `[TerminalProvider] Failed to write clipboard: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  }
-
-  public async handleGetClipboard(): Promise<void> {
-    try {
-      const text = await vscode.env.clipboard.readText();
-      this.provider.postWebviewMessage({
-        type: "clipboardContent",
-        text,
-      });
-    } catch (error) {
-      this.logger.error(
-        `[TerminalProvider] Failed to read clipboard: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -682,35 +607,6 @@ export class MessageRouter {
     });
   }
 
-  public async handleTerminalAction(
-    action: "focus" | "sendCommand" | "capture",
-    terminalName: string,
-    command?: string,
-  ): Promise<void> {
-    const targetTerminal = vscode.window.terminals.find(
-      (terminal) => terminal.name === terminalName,
-    );
-
-    if (!targetTerminal) {
-      this.logger.warn(`Terminal not found: ${terminalName}`);
-      return;
-    }
-
-    switch (action) {
-      case "focus":
-        targetTerminal.show();
-        break;
-      case "sendCommand":
-        if (command) {
-          await this.sendCommandToTerminal(targetTerminal, command);
-        }
-        break;
-      case "capture":
-        this.startTerminalCapture(targetTerminal, terminalName);
-        break;
-    }
-  }
-
   public async sendCommandToTerminal(
     terminal: vscode.Terminal,
     command: string,
@@ -809,26 +705,28 @@ export class MessageRouter {
         return null;
       }
 
-      const pathParts = filePath.split("/").filter((part) => part.length > 0);
+      const pathParts = filePath
+        .split(/[\\/]/)
+        .filter((part) => part.length > 0);
       const filename = pathParts[pathParts.length - 1];
 
       const pattern = `**/${filename}*`;
       const files = await vscode.workspace.findFiles(pattern, null, 100);
 
+      const normalizedInput = filePath.replace(/\\/g, "/").toLowerCase();
       files.sort((a, b) => {
-        const aPath = a.fsPath.toLowerCase();
-        const bPath = b.fsPath.toLowerCase();
-        const lowerPath = filePath.toLowerCase();
+        const aPath = a.fsPath.replace(/\\/g, "/").toLowerCase();
+        const bPath = b.fsPath.replace(/\\/g, "/").toLowerCase();
 
-        if (aPath.endsWith(lowerPath)) {
+        if (aPath.endsWith(normalizedInput)) {
           return -1;
         }
-        if (bPath.endsWith(lowerPath)) {
+        if (bPath.endsWith(normalizedInput)) {
           return 1;
         }
 
-        const aDirParts = a.fsPath.split("/");
-        const bDirParts = b.fsPath.split("/");
+        const aDirParts = a.fsPath.split(/[\\/]/);
+        const bDirParts = b.fsPath.split(/[\\/]/);
 
         for (let i = 0; i < pathParts.length - 1; i++) {
           const expectedPart = pathParts[i].toLowerCase();

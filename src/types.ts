@@ -49,12 +49,6 @@ export type WebviewMessage =
   | { type: "terminalResize"; cols: number; rows: number }
   | { type: "listTerminals" }
   | {
-      type: "terminalAction";
-      action: "focus" | "sendCommand" | "capture";
-      terminalName: string;
-      command?: string;
-    }
-  | {
       type: "openFile";
       path: string;
       line?: number;
@@ -70,18 +64,12 @@ export type WebviewMessage =
       dropCell?: { col: number; row: number };
       blobFiles?: DroppedBlobFile[];
     }
-  | { type: "getClipboard" }
   | { type: "setClipboard"; text: string }
   | { type: "triggerPaste" }
   | { type: "imagePasted"; data: string }
   | { type: "switchSession"; sessionId: string }
   | { type: "killSession"; sessionId: string }
   | { type: "createTmuxSession" }
-  | { type: "createTmuxWindow" }
-  | { type: "createNativeShell" }
-  | { type: "navigateTmuxWindow"; direction: "next" | "prev" }
-  | { type: "navigateTmuxSession"; direction: "next" | "prev" }
-  | { type: "switchNativeShell" }
   | {
       type: "launchAiTool";
       sessionId: string;
@@ -89,19 +77,8 @@ export type WebviewMessage =
       savePreference: boolean;
       targetPaneId?: string;
     }
-  | { type: "splitTmuxPane"; direction: "h" | "v" }
   | { type: "zoomTmuxPane" }
-  | { type: "killTmuxPane" }
   | { type: "toggleDashboard" }
-  | {
-      type: "dashboardAction";
-      action: string;
-      sessionId?: string;
-      windowId?: string;
-      paneId?: string;
-      direction?: string;
-    }
-  | { type: "openDashboardInEditor" }
   | { type: "toggleEditorAttachment" }
   | { type: "sendTmuxPromptChoice"; choice: "tmux" | "shell" }
   | { type: "requestAiToolSelector" }
@@ -150,9 +127,6 @@ export const DEFAULT_AI_TOOLS: readonly AiToolConfig[] = [
     operator: "codex",
   },
 ] as const;
-
-/** @deprecated Use resolveAiToolConfigs() instead */
-export const AI_TOOLS = DEFAULT_AI_TOOLS;
 
 export function resolveAiToolConfigs(
   userTools: readonly unknown[],
@@ -377,6 +351,7 @@ export interface TreeSnapshot {
 }
 
 export type HostMessage =
+  | { type: "requestPaste" }
   | { type: "clipboardContent"; text: string }
   | { type: "terminalList"; terminals: Array<{ name: string; cwd: string }> }
   | { type: "terminalOutput"; data: string }
