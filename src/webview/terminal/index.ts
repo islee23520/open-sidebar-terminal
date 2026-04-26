@@ -49,7 +49,13 @@ export function initTerminal(
   });
 
   const keyboardHandler = createKeyboardHandler();
-  terminal.attachCustomKeyEventHandler(keyboardHandler.handler);
+  terminal.attachCustomKeyEventHandler((event) => {
+    if (event.key === "Enter" && event.shiftKey) {
+      terminal.write("\r\n");
+      return false;
+    }
+    return keyboardHandler.handler(event);
+  });
 
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
