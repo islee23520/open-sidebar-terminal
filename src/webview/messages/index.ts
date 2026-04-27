@@ -29,6 +29,14 @@ export interface MessageHandler {
   handleEvent: (event: MessageEvent<HostMessage>) => void;
 }
 
+function postTerminalResize(terminal: Terminal): void {
+  postMessage({
+    type: "terminalResize",
+    cols: terminal.cols,
+    rows: terminal.rows,
+  });
+}
+
 export function createMessageHandler(
   callbacks: MessageHandlerCallbacks,
 ): MessageHandler {
@@ -58,11 +66,7 @@ export function createMessageHandler(
             terminal.reset();
             if (fitAddon) {
               fitAddon.fit();
-              postMessage({
-                type: "terminalResize",
-                cols: terminal.cols,
-                rows: terminal.rows,
-              });
+              postTerminalResize(terminal);
             }
           }
           break;
@@ -78,11 +82,7 @@ export function createMessageHandler(
             if (terminal && fitAddon) {
               fitAddon.fit();
               scheduleRefresh(() => terminal.refresh(0, terminal.rows - 1));
-              postMessage({
-                type: "terminalResize",
-                cols: terminal.cols,
-                rows: terminal.rows,
-              });
+              postTerminalResize(terminal);
             }
           }, 50);
           break;
