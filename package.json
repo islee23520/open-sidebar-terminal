@@ -135,7 +135,7 @@
       },
       {
         "command": "opencodeTui.toggleDashboard",
-        "title": "Toggle Session Dashboard",
+        "title": "Open Terminal Managers",
         "category": "Open Sidebar Terminal",
         "icon": "$(dashboard)"
       },
@@ -147,7 +147,7 @@
       },
       {
         "command": "opencodeTui.openDashboardInEditor",
-        "title": "Open Dashboard in Editor",
+        "title": "Open Terminal Managers in Editor",
         "category": "Open Sidebar Terminal",
         "icon": "$(editor-layout)"
       },

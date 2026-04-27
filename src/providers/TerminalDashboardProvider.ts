@@ -17,7 +17,7 @@ import {
 } from "../types";
 
 /**
- * Terminal Dashboard provider. Webview-based tmux session manager with inline pane controls (split, switch, resize, swap, kill). Filters sessions to current workspace.
+ * Terminal Managers provider. Webview-based tmux session manager with inline pane controls (split, switch, resize, swap, kill). Filters sessions to current workspace.
  */
 export class TerminalDashboardProvider
   implements vscode.WebviewViewProvider, vscode.Disposable

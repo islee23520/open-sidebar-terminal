@@ -51,7 +51,7 @@ async function openDashboardInEditor(
 
   const panel = vscode.window.createWebviewPanel(
     "opencodeTui.dashboardEditor",
-    "Terminal Dashboard",
+    "Terminal Managers",
     vscode.ViewColumn.One,
     {
       enableScripts: true,

@@ -380,7 +380,7 @@ describe("dashboardCommands", () => {
 
     expect(vscode.window.createWebviewPanel).toHaveBeenCalledWith(
       "opencodeTui.dashboardEditor",
-      "Terminal Dashboard",
+      "Terminal Managers",
       vscode.ViewColumn.One,
       {
         enableScripts: true,
