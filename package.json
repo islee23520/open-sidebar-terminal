@@ -21,7 +21,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": " https://github.com/islee23520/open-sidebar-terminal.git"
+    "url": "https://github.com/islee23520/open-sidebar-terminal.git"
   },
   "license": "MIT",
   "main": "./dist/extension.js",
@@ -587,6 +587,9 @@
     "@xterm/xterm": "^6.0.0",
     "node-pty": "^1.2.0-beta.11",
     "preact": "^10.29.1"
+  },
+  "overrides": {
+    "serialize-javascript": "^7.0.5"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
