@@ -522,6 +522,21 @@ describe("SessionRuntime - Workspace Session Resolution", () => {
       expect(sessionRuntime.getApiClient()).toBeDefined();
     });
 
+    it("resolves active terminal backend ids from non-tmux runtime terminal keys", async () => {
+      instanceStore.upsert({
+        config: { id: "native-instance" },
+        runtime: { terminalKey: "native-terminal-key" },
+        state: "connected",
+      });
+      instanceStore.setActive("native-instance");
+      (
+        sessionRuntime as unknown as { activeInstanceId: string }
+      ).activeInstanceId = "native-instance";
+
+      expect(sessionRuntime.getActiveInstanceId()).toBe("native-instance");
+      expect(sessionRuntime.getActiveTerminalId()).toBe("native-terminal-key");
+    });
+
     it("force restarts an existing instance by killing its terminal and requesting a relaunch", async () => {
       upsertInstance({ id: "instance-2" });
       vi.mocked(mockTerminalManager.getByInstance).mockReturnValue({

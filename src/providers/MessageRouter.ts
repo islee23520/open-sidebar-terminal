@@ -31,6 +31,7 @@ export interface MessageRouterProviderBridge {
   switchToNativeShell(): Promise<void>;
   pasteText(text: string): void;
   getActiveInstanceId(): InstanceId;
+  getActiveTerminalId(): string;
   setLastKnownTerminalSize(cols: number, rows: number): void;
   getLastKnownTerminalSize(): { cols: number; rows: number };
   isStarted(): boolean;
@@ -200,7 +201,7 @@ export class MessageRouter {
     }
 
     this.terminalManager.writeToTerminal(
-      this.provider.getActiveInstanceId(),
+      this.provider.getActiveTerminalId(),
       data,
     );
   }
@@ -272,7 +273,7 @@ export class MessageRouter {
 
     this.provider.setLastKnownTerminalSize(cols, rows);
     this.terminalManager.resizeTerminal(
-      this.provider.getActiveInstanceId(),
+      this.provider.getActiveTerminalId(),
       cols,
       rows,
     );

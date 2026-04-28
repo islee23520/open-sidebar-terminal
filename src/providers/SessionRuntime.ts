@@ -84,6 +84,10 @@ export class SessionRuntime {
     return this.activeInstanceId;
   }
 
+  public getActiveTerminalId(): string {
+    return this.resolveTerminalIdForInstance(this.activeInstanceId);
+  }
+
   public getLastKnownTerminalSize(): { cols: number; rows: number } {
     return { cols: this.lastKnownCols, rows: this.lastKnownRows };
   }
@@ -130,7 +134,7 @@ export class SessionRuntime {
   public hasLiveTerminalProcess(): boolean {
     return (
       this.isStarted &&
-      this.terminalManager.getTerminal(this.activeInstanceId) !== undefined
+      this.terminalManager.getTerminal(this.getActiveTerminalId()) !== undefined
     );
   }
 
@@ -184,7 +188,7 @@ export class SessionRuntime {
 
       if (this.lastKnownCols && this.lastKnownRows) {
         this.terminalManager.resizeTerminal(
-          this.activeInstanceId,
+          this.getActiveTerminalId(),
           this.lastKnownCols,
           this.lastKnownRows,
         );
@@ -384,7 +388,7 @@ export class SessionRuntime {
 
   public restart(): void {
     this.disposeListeners();
-    this.terminalManager.killTerminal(this.activeInstanceId);
+    this.terminalManager.killTerminal(this.getActiveTerminalId());
     this.resetState();
 
     this.callbacks.postMessage({ type: "clearTerminal" });
@@ -1166,7 +1170,21 @@ export class SessionRuntime {
     this.activeInstanceSubscription?.dispose();
     this.activeInstanceSubscription = undefined;
     if (this.isStarted) {
-      this.terminalManager.killTerminal(this.activeInstanceId);
+      this.terminalManager.killTerminal(this.getActiveTerminalId());
+    }
+  }
+
+  private resolveTerminalIdForInstance(instanceId: InstanceId): string {
+    if (!this.instanceStore) {
+      return instanceId;
+    }
+
+    try {
+      return (
+        this.instanceStore.get(instanceId)?.runtime.terminalKey ?? instanceId
+      );
+    } catch {
+      return instanceId;
     }
   }
 

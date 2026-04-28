@@ -83,6 +83,7 @@ export class TerminalProvider
       isStarted: () => this.isStarted(),
       resizeActiveTerminal: (cols, rows) =>
         this.resizeActiveTerminal(cols, rows),
+      getActiveTerminalId: () => this.activeTerminalId,
       postWebviewMessage: (message) => this.postWebviewMessage(message),
       routeDroppedTextToTmuxPane: (text, dropCell) =>
         this.sessionRuntime.routeDroppedTextToTmuxPane(text, dropCell),
@@ -122,6 +123,10 @@ export class TerminalProvider
 
   private get activeInstanceId(): InstanceId {
     return this.sessionRuntime.getActiveInstanceId();
+  }
+
+  private get activeTerminalId(): string {
+    return this.sessionRuntime.getActiveTerminalId();
   }
 
   public get lastKnownCols(): number {
@@ -373,7 +378,7 @@ export class TerminalProvider
       }
     }
 
-    this.terminalManager.writeToTerminal(this.activeInstanceId, prompt);
+    this.terminalManager.writeToTerminal(this.activeTerminalId, prompt);
   }
 
   public async launchAiTool(
@@ -531,7 +536,7 @@ export class TerminalProvider
   }
 
   private resizeActiveTerminal(cols: number, rows: number): void {
-    this.terminalManager.resizeTerminal(this.activeInstanceId, cols, rows);
+    this.terminalManager.resizeTerminal(this.activeTerminalId, cols, rows);
   }
 
   private getActiveInstanceId(): InstanceId {

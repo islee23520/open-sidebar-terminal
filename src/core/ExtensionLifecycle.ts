@@ -330,7 +330,9 @@ export class ExtensionLifecycle {
     if (config.get<boolean>("autoFocusOnSend", true)) {
       vscode.commands.executeCommand("opencodeTui.focus");
       setTimeout(() => {
-        this.tuiProvider?.focus();
+        if (typeof this.tuiProvider?.focus === "function") {
+          this.tuiProvider.focus();
+        }
       }, 100);
     }
   }
@@ -394,7 +396,9 @@ export class ExtensionLifecycle {
     if (config.get<boolean>("autoFocusOnSend", true)) {
       vscode.commands.executeCommand("opencodeTui.focus");
       setTimeout(() => {
-        this.tuiProvider?.focus();
+        if (typeof this.tuiProvider?.focus === "function") {
+          this.tuiProvider.focus();
+        }
       }, 100);
     }
   }

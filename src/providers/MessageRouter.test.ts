@@ -77,6 +77,7 @@ describe("MessageRouter", () => {
       switchToNativeShell: vi.fn(async () => undefined),
       pasteText: vi.fn(),
       getActiveInstanceId: vi.fn(() => "instance-1"),
+      getActiveTerminalId: vi.fn(() => "terminal-1"),
       setLastKnownTerminalSize: vi.fn(),
       getLastKnownTerminalSize: vi.fn(() => ({ cols: 120, rows: 40 })),
       isStarted: vi.fn(() => false),
@@ -198,12 +199,12 @@ describe("MessageRouter", () => {
     await router.handleMessage({ type: "ready", cols: 80, rows: 25 });
 
     expect(terminalManager.writeToTerminal).toHaveBeenCalledWith(
-      "instance-1",
+      "terminal-1",
       "pwd\n",
     );
     expect(provider.setLastKnownTerminalSize).toHaveBeenCalledWith(100, 30);
     expect(terminalManager.resizeTerminal).toHaveBeenCalledWith(
-      "instance-1",
+      "terminal-1",
       100,
       30,
     );
