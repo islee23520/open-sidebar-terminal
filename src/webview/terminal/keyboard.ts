@@ -7,6 +7,7 @@ const isLetterOrDigitCode = (code: string): boolean =>
 
 export interface KeyboardHandlerOptions {
   isMac?: boolean;
+  write?: (data: string) => void;
 }
 
 export function createKeyboardHandler(options: KeyboardHandlerOptions = {}) {
@@ -17,13 +18,23 @@ export function createKeyboardHandler(options: KeyboardHandlerOptions = {}) {
       ? event.metaKey && !event.ctrlKey
       : event.ctrlKey && !event.metaKey;
 
-  const handler = (event: KeyboardEvent): boolean => {
-    const isLetterOrDigitChord =
-      !event.altKey &&
-      (event.ctrlKey || event.metaKey) &&
-      isLetterOrDigitCode(event.code);
+  const isLetterOrDigitChord = (event: KeyboardEvent): boolean =>
+    !event.altKey &&
+    (event.ctrlKey || event.metaKey) &&
+    isLetterOrDigitCode(event.code);
 
-    if (!isLetterOrDigitChord) {
+  const isShiftEnter = (event: KeyboardEvent): boolean =>
+    event.key === "Enter" && event.shiftKey && !event.ctrlKey && !event.metaKey;
+
+  const handler = (event: KeyboardEvent): boolean => {
+    if (isShiftEnter(event) && event.type === "keydown" && options.write) {
+      event.preventDefault();
+      event.stopPropagation();
+      options.write("\r\n");
+      return false;
+    }
+
+    if (!isLetterOrDigitChord(event)) {
       return true;
     }
 

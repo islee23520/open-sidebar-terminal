@@ -48,14 +48,10 @@ export function initTerminal(
     scrollback: config.scrollback,
   });
 
-  const keyboardHandler = createKeyboardHandler();
-  terminal.attachCustomKeyEventHandler((event) => {
-    if (event.key === "Enter" && event.shiftKey) {
-      terminal.write("\r\n");
-      return false;
-    }
-    return keyboardHandler.handler(event);
+  const keyboardHandler = createKeyboardHandler({
+    write: (data) => terminal.write(data),
   });
+  terminal.attachCustomKeyEventHandler(keyboardHandler.handler);
 
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
