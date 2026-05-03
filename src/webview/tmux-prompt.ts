@@ -9,7 +9,16 @@ export interface TmuxPromptCallbacks {
 
 let visible = false;
 
-export function show(wsName: string): void {
+import type { TerminalBackendAvailability } from "../types";
+
+export function show(
+  wsName: string,
+  availability: TerminalBackendAvailability = {
+    native: true,
+    tmux: true,
+    zellij: false,
+  },
+): void {
   visible = true;
 
   const workspaceEl = document.getElementById("tmux-prompt-workspace");
@@ -22,6 +31,8 @@ export function show(wsName: string): void {
     backdrop.classList.remove("hidden");
     backdrop.style.display = "flex";
   }
+
+  updatePromptBackendOptions(availability);
 }
 
 export function hide(): void {
@@ -53,6 +64,14 @@ export function selectShell(callbacks: TmuxPromptCallbacks): void {
   hide();
 }
 
+export function selectZellij(callbacks: TmuxPromptCallbacks): void {
+  callbacks.postMessage({
+    type: "sendTmuxPromptChoice",
+    choice: "zellij",
+  });
+  hide();
+}
+
 export function handleClick(
   target: Element,
   callbacks: TmuxPromptCallbacks,
@@ -67,9 +86,29 @@ export function handleClick(
     return true;
   }
 
+  if (target.closest("#tmux-prompt-zellij")) {
+    selectZellij(callbacks);
+    return true;
+  }
+
   if (target.id === "tmux-prompt" && !target.closest(".ai-selector-card")) {
     return true;
   }
 
   return false;
+}
+
+function updatePromptBackendOptions(
+  availability: TerminalBackendAvailability,
+): void {
+  const tmuxButton = document.getElementById("tmux-prompt-tmux");
+  if (tmuxButton instanceof HTMLButtonElement) {
+    tmuxButton.disabled = !availability.tmux;
+    tmuxButton.style.display = availability.tmux ? "" : "none";
+  }
+  const zellijButton = document.getElementById("tmux-prompt-zellij");
+  if (zellijButton instanceof HTMLButtonElement) {
+    zellijButton.disabled = !availability.zellij;
+    zellijButton.style.display = availability.zellij ? "" : "none";
+  }
 }

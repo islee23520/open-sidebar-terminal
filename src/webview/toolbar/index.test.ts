@@ -21,41 +21,39 @@ beforeEach(() => {
 });
 
 describe("toolbar backend toggle", () => {
-  it("requests native shell when currently in tmux mode", () => {
-    setupBackendToggleButton(() => true);
+  it("requests backend cycle on click", () => {
+    setupBackendToggleButton(() => "tmux");
 
     document.getElementById("btn-toggle-backend")?.click();
 
     expect(postMessageMock).toHaveBeenCalledWith({
-      type: "sendTmuxPromptChoice",
-      choice: "shell",
+      type: "cycleTerminalBackend",
     });
   });
 
-  it("requests tmux when currently in native mode", () => {
-    setupBackendToggleButton(() => false);
-
-    document.getElementById("btn-toggle-backend")?.click();
-
-    expect(postMessageMock).toHaveBeenCalledWith({
-      type: "sendTmuxPromptChoice",
-      choice: "tmux",
-    });
-  });
-
-  it("disables native-to-tmux switching when tmux is unavailable", () => {
+  it("skips unavailable backends in button title", () => {
     const button = document.getElementById(
       "btn-toggle-backend",
     ) as HTMLButtonElement;
 
-    updateBackendToggleButtonState(false, false);
+    updateBackendToggleButtonState("native", {
+      native: true,
+      tmux: false,
+      zellij: true,
+    });
 
-    expect(button.disabled).toBe(true);
-    expect(button.title).toBe("Tmux is not available");
+    expect(button.disabled).toBe(false);
+    expect(button.title).toBe("Switch to Zellij");
+    expect(button.textContent).toBe("N");
 
-    updateBackendToggleButtonState(true, false);
+    updateBackendToggleButtonState("zellij", {
+      native: true,
+      tmux: false,
+      zellij: true,
+    });
 
     expect(button.disabled).toBe(false);
     expect(button.title).toBe("Switch to Native Shell");
+    expect(button.textContent).toBe("Z");
   });
 });
