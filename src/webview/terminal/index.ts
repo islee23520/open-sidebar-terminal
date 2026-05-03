@@ -49,7 +49,7 @@ export function initTerminal(
   });
 
   const keyboardHandler = createKeyboardHandler({
-    write: (data) => terminal.write(data),
+    sendInput: (data) => options.onData(data),
   });
   terminal.attachCustomKeyEventHandler(keyboardHandler.handler);
 
