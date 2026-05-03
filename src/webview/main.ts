@@ -14,9 +14,12 @@ import {
   setupEditorAttachmentButton,
   setupReloadButton,
   setupTmuxCommandButton,
+  setupBackendToggleButton,
+  updateBackendToggleButtonState,
 } from "./toolbar";
 
 let currentSessionId: string | null = null;
+let isTmuxAvailable = true;
 
 function toggleTmuxCommandMenu(): void {
   if (!currentSessionId) {
@@ -44,9 +47,11 @@ const callbacks: MessageHandlerCallbacks = {
     const toolbar = document.getElementById("tmux-toolbar");
     const label = document.getElementById("tmux-session-label");
     const toolbarControls = document.querySelector(".toolbar-controls");
+
+    if (toolbar) toolbar.classList.remove("hidden");
+
     if ("sessionName" in message && message.sessionName) {
       currentSessionId = message.sessionId;
-      if (toolbar) toolbar.classList.remove("hidden");
       if (label) {
         const windowSuffix =
           message.windowIndex !== undefined
@@ -59,11 +64,13 @@ const callbacks: MessageHandlerCallbacks = {
       }
     } else {
       currentSessionId = null;
-      if (label) label.textContent = "";
+      if (label) label.textContent = "Native Shell";
       if (toolbarControls) {
         toolbarControls.classList.add("hidden");
       }
     }
+
+    updateBackendToggleButtonState(currentSessionId !== null, isTmuxAvailable);
   },
 
   onToggleTmuxCommandToolbar() {
@@ -90,7 +97,9 @@ const callbacks: MessageHandlerCallbacks = {
   },
 
   onPlatformInfo(message) {
-    updateTmuxOnlyElements(message.tmuxAvailable !== false);
+    isTmuxAvailable = message.tmuxAvailable !== false;
+    updateTmuxOnlyElements(isTmuxAvailable);
+    updateBackendToggleButtonState(currentSessionId !== null, isTmuxAvailable);
   },
 };
 
@@ -149,6 +158,7 @@ function initApp(): void {
   setupReloadButton();
   setupEditorAttachmentButton();
   setupTmuxCommandButton(() => currentSessionId);
+  setupBackendToggleButton(() => currentSessionId !== null);
 
   window.addEventListener("message", (event: MessageEvent) => {
     messageHandler.handleEvent(event as MessageEvent<HostMessage>);
