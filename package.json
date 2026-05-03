@@ -446,6 +446,21 @@
           "default": true,
           "description": "Enable tmux session management. Disable to use the extension with a plain terminal shell (no tmux required)."
         },
+        "opencodeTui.terminalBackend": {
+          "type": "string",
+          "default": "tmux",
+          "enum": [
+            "native",
+            "tmux",
+            "zellij"
+          ],
+          "description": "Preferred terminal backend. Unavailable backends safely fall back to native."
+        },
+        "opencodeTui.enableZellij": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable zellij session backend detection and session attach/create support."
+        },
         "opencodeTui.collapseSecondaryBarOnEditorOpen": {
           "type": "boolean",
           "default": true,
