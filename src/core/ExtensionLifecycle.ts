@@ -16,6 +16,11 @@ import { InstanceController } from "../services/InstanceController";
 import { PortManager } from "../services/PortManager";
 import { ConnectionResolver } from "../services/ConnectionResolver";
 import { TmuxSessionManager } from "../services/TmuxSessionManager";
+import { ZellijSessionManager } from "../services/ZellijSessionManager";
+import {
+  StaticTerminalBackend,
+  TerminalBackendRegistry,
+} from "../services/terminalBackends";
 import { TerminalDashboardProvider } from "../providers/TerminalDashboardProvider";
 import {
   registerCommands as registerAllCommands,
@@ -40,6 +45,8 @@ export class ExtensionLifecycle {
   private instanceController: InstanceController | undefined;
   private portManager: PortManager | undefined;
   private tmuxSessionManager: TmuxSessionManager | undefined;
+  private zellijSessionManager: ZellijSessionManager | undefined;
+  private backendRegistry: TerminalBackendRegistry | undefined;
   private terminalDashboardProvider: TerminalDashboardProvider | undefined;
   private activated = false;
   private tuiProviderRegistration: vscode.Disposable | undefined;
@@ -121,6 +128,28 @@ export class ExtensionLifecycle {
           "[ExtensionLifecycle] tmux disabled by opencodeTui.enableTmux setting; using native terminal shell behavior",
         );
       }
+      const enableZellij = vscode.workspace
+        .getConfiguration("opencodeTui")
+        .get<boolean>("enableZellij", true);
+      if (enableZellij) {
+        const zellijSessionManager = new ZellijSessionManager(logger);
+        if (await zellijSessionManager.isAvailable()) {
+          this.zellijSessionManager = zellijSessionManager;
+        } else {
+          logger.info(
+            "[ExtensionLifecycle] zellij not detected; zellij backend unavailable",
+          );
+        }
+      }
+      this.backendRegistry = new TerminalBackendRegistry([
+        new StaticTerminalBackend("native", "Native", true),
+        new StaticTerminalBackend("tmux", "Tmux", !!this.tmuxSessionManager),
+        new StaticTerminalBackend(
+          "zellij",
+          "Zellij",
+          !!this.zellijSessionManager,
+        ),
+      ]);
       this.instanceRegistry = new InstanceRegistry(context);
       this.instanceRegistry.hydrate(this.instanceStore);
 
@@ -158,6 +187,8 @@ export class ExtensionLifecycle {
         this.portManager,
         this.instanceStore,
         this.tmuxSessionManager,
+        this.zellijSessionManager,
+        this.backendRegistry,
       );
 
       // Register webview provider — guard against double-registration on fast

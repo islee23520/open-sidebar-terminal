@@ -12,6 +12,7 @@ import {
   AiToolConfig,
   HostMessage,
   TMUX_RAW_ALLOWED_SUBCOMMANDS,
+  TerminalBackendType,
   resolveAiToolConfigs,
 } from "../types";
 import type { TmuxRawSubcommand } from "../types";
@@ -19,6 +20,8 @@ import { AiToolOperatorRegistry } from "../services/aiTools/AiToolOperatorRegist
 import { MessageRouter, MessageRouterProviderBridge } from "./MessageRouter";
 import { SessionRuntime } from "./SessionRuntime";
 import { renderTerminalHtml } from "../webview/terminal/html";
+import { ZellijSessionManager } from "../services/ZellijSessionManager";
+import { TerminalBackendRegistry } from "../services/terminalBackends";
 
 export class TerminalProvider
   implements vscode.WebviewViewProvider, vscode.WebviewPanelSerializer
@@ -41,6 +44,12 @@ export class TerminalProvider
     private readonly portManager: PortManager,
     private readonly instanceStore?: InstanceStore,
     private readonly tmuxSessionManager?: TmuxSessionManager,
+    private readonly zellijSessionManager?: ZellijSessionManager,
+    private readonly backendRegistry: TerminalBackendRegistry = new TerminalBackendRegistry([
+      { type: "native", label: "Native", isAvailable: () => true },
+      { type: "tmux", label: "Tmux", isAvailable: () => !!tmuxSessionManager },
+      { type: "zellij", label: "Zellij", isAvailable: () => !!zellijSessionManager },
+    ]),
   ) {
     this.contextSharingService = new ContextSharingService();
     this.aiToolRegistry = new AiToolOperatorRegistry();
@@ -51,6 +60,8 @@ export class TerminalProvider
       undefined,
       this.portManager,
       this.tmuxSessionManager,
+      this.zellijSessionManager,
+      this.backendRegistry,
       this.instanceStore,
       this.logger,
       this.contextSharingService,
@@ -75,6 +86,8 @@ export class TerminalProvider
       toggleEditorAttachment: () => this.toggleEditorAttachment(),
       restart: () => this.restart(),
       switchToNativeShell: () => this.switchToNativeShell(),
+      selectTerminalBackend: (backend) => this.selectTerminalBackend(backend),
+      cycleTerminalBackend: () => this.cycleTerminalBackend(),
       pasteText: (text) => this.pasteText(text),
       getActiveInstanceId: () => this.getActiveInstanceId(),
       setLastKnownTerminalSize: (cols, rows) =>
@@ -107,6 +120,9 @@ export class TerminalProvider
       zoomTmuxPane: () => this.zoomTmuxPane(),
       getSelectedTmuxSessionId: () => this.getSelectedTmuxSessionId(),
       isTmuxAvailable: () => !!this.tmuxSessionManager,
+      isZellijAvailable: () => !!this.zellijSessionManager,
+      getActiveBackend: () => this.sessionRuntime.getActiveBackend(),
+      getBackendAvailability: () => this.sessionRuntime.getBackendAvailability(),
     };
 
     this.messageRouter = new MessageRouter(
@@ -322,6 +338,16 @@ export class TerminalProvider
 
   public async switchToNativeShell(): Promise<void> {
     await this.sessionRuntime.switchToNativeShell();
+  }
+
+  public async selectTerminalBackend(
+    backend: TerminalBackendType,
+  ): Promise<void> {
+    await this.sessionRuntime.selectTerminalBackend(backend);
+  }
+
+  public async cycleTerminalBackend(): Promise<void> {
+    await this.sessionRuntime.cycleTerminalBackend();
   }
 
   public async createTmuxSession(): Promise<string | undefined> {
@@ -566,18 +592,31 @@ export class TerminalProvider
       this.sessionRuntime.resolveTmuxSessionIdForInstance(
         this.getActiveInstanceId(),
       );
-    const sessionId = selectedSessionId ?? resolvedSessionId;
+    const activeBackend = this.sessionRuntime.getActiveBackend();
+    const zellijSessionId = this.sessionRuntime.resolveZellijSessionIdForInstance(
+      this.getActiveInstanceId(),
+    );
+    const sessionId =
+      activeBackend === "zellij"
+        ? zellijSessionId
+        : selectedSessionId ?? resolvedSessionId;
+    const sessionBackend: TerminalBackendType = zellijSessionId
+      ? "zellij"
+      : sessionId
+        ? "tmux"
+        : "native";
 
     if (sessionId) {
       webview.postMessage({
         type: "activeSession",
         sessionName: sessionId,
         sessionId,
+        backend: sessionBackend,
       });
       return;
     }
 
-    webview.postMessage({ type: "activeSession" });
+    webview.postMessage({ type: "activeSession", backend: "native" });
   }
 
   private getEditorPanelOptions(): vscode.WebviewOptions &

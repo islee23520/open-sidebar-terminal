@@ -75,6 +75,8 @@ describe("MessageRouter", () => {
       toggleEditorAttachment: vi.fn(async () => undefined),
       restart: vi.fn(),
       switchToNativeShell: vi.fn(async () => undefined),
+      selectTerminalBackend: vi.fn(async () => undefined),
+      cycleTerminalBackend: vi.fn(async () => undefined),
       pasteText: vi.fn(),
       getActiveInstanceId: vi.fn(() => "instance-1"),
       getActiveTerminalId: vi.fn(() => "terminal-1"),
@@ -95,6 +97,13 @@ describe("MessageRouter", () => {
       zoomTmuxPane: vi.fn(async () => undefined),
       getSelectedTmuxSessionId: vi.fn(() => "tmux-selected"),
       isTmuxAvailable: vi.fn(() => true),
+      isZellijAvailable: vi.fn(() => true),
+      getActiveBackend: () => "tmux",
+      getBackendAvailability: vi.fn(() => ({
+        native: true,
+        tmux: true,
+        zellij: true,
+      })),
     };
   }
 
@@ -213,6 +222,9 @@ describe("MessageRouter", () => {
       type: "platformInfo",
       platform: process.platform,
       tmuxAvailable: true,
+      zellijAvailable: true,
+      backendAvailability: { native: true, tmux: true, zellij: true },
+      activeBackend: "tmux",
     });
   });
 
@@ -243,6 +255,11 @@ describe("MessageRouter", () => {
       type: "sendTmuxPromptChoice",
       choice: "shell",
     });
+    await router.handleMessage({
+      type: "sendTmuxPromptChoice",
+      choice: "zellij",
+    });
+    await router.handleMessage({ type: "cycleTerminalBackend" });
     await router.handleMessage({ type: "requestAiToolSelector" });
     await router.handleMessage({
       type: "executeTmuxCommand",
@@ -262,7 +279,10 @@ describe("MessageRouter", () => {
     expect(provider.pasteText).toHaveBeenCalledWith("clipboard text");
     expect(provider.switchToTmuxSession).toHaveBeenCalledWith("tmux-a");
     expect(provider.killTmuxSession).toHaveBeenCalledWith("tmux-b");
-    expect(provider.createTmuxSession).toHaveBeenCalledTimes(2);
+    expect(provider.createTmuxSession).toHaveBeenCalledTimes(1);
+    expect(provider.selectTerminalBackend).toHaveBeenCalledWith("tmux");
+    expect(provider.selectTerminalBackend).toHaveBeenCalledWith("zellij");
+    expect(provider.cycleTerminalBackend).toHaveBeenCalledTimes(1);
     expect(provider.switchToNativeShell).toHaveBeenCalledTimes(1);
     expect(provider.launchAiTool).toHaveBeenCalledWith(
       "tmux-c",
@@ -680,6 +700,9 @@ describe("MessageRouter", () => {
       type: "platformInfo",
       platform: process.platform,
       tmuxAvailable: true,
+      zellijAvailable: true,
+      backendAvailability: { native: true, tmux: true, zellij: true },
+      activeBackend: "tmux",
     });
   });
 

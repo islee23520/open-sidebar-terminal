@@ -1470,6 +1470,7 @@ describe("TerminalProvider", () => {
       type: "activeSession",
       sessionName: "tmux-selected",
       sessionId: "tmux-selected",
+      backend: "tmux",
     });
   });
 
