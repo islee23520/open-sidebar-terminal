@@ -44,6 +44,14 @@ export interface DroppedBlobFile {
   data: string;
 }
 
+export type TerminalBackendType = "native" | "tmux" | "zellij";
+
+export interface TerminalBackendAvailability {
+  native: boolean;
+  tmux: boolean;
+  zellij: boolean;
+}
+
 export type WebviewMessage =
   | { type: "terminalInput"; data: string }
   | { type: "terminalResize"; cols: number; rows: number }
@@ -80,7 +88,9 @@ export type WebviewMessage =
   | { type: "zoomTmuxPane" }
   | { type: "toggleDashboard" }
   | { type: "toggleEditorAttachment" }
-  | { type: "sendTmuxPromptChoice"; choice: "tmux" | "shell" }
+  | { type: "sendTmuxPromptChoice"; choice: "tmux" | "shell" | "zellij" }
+  | { type: "selectTerminalBackend"; backend: TerminalBackendType }
+  | { type: "cycleTerminalBackend" }
   | { type: "requestAiToolSelector" }
   | { type: "executeTmuxCommand"; commandId: TmuxWebviewCommandId }
   | {
@@ -359,7 +369,14 @@ export type HostMessage =
   | { type: "clearTerminal" }
   | { type: "focusTerminal" }
   | { type: "webviewVisible" }
-  | { type: "platformInfo"; platform: string; tmuxAvailable?: boolean }
+  | {
+      type: "platformInfo";
+      platform: string;
+      tmuxAvailable?: boolean;
+      zellijAvailable?: boolean;
+      backendAvailability?: TerminalBackendAvailability;
+      activeBackend?: TerminalBackendType;
+    }
   | {
       type: "terminalConfig";
       fontSize: number;
@@ -375,8 +392,9 @@ export type HostMessage =
       windowIndex?: number;
       windowName?: string;
       canKillPane?: boolean;
+      backend?: TerminalBackendType;
     }
-  | { type: "activeSession" }
+  | { type: "activeSession"; backend?: TerminalBackendType }
   | {
       type: "showAiToolSelector";
       sessionId: string;
@@ -397,6 +415,8 @@ export type HostMessage =
       type: "showTmuxPrompt";
       workspaceName: string;
       tmuxAvailable?: boolean;
+      zellijAvailable?: boolean;
+      activeBackend?: TerminalBackendType;
     };
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -423,4 +443,5 @@ export interface ExtensionConfig {
   enableAutoSpawn: boolean;
   codeActionSeverities: DiagnosticSeverity[];
   collapseSecondaryBarOnEditorOpen: boolean;
+  terminalBackend: TerminalBackendType;
 }

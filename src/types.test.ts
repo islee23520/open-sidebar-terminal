@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type {
   HostMessage,
+  TerminalBackendType,
   TmuxDashboardActionMessage,
   TmuxDashboardHostMessage,
   WebviewMessage,
@@ -132,6 +133,18 @@ describe("Types", () => {
       expect(killMessage.type).toBe("killSession");
       expect(killMessage.sessionId).toBe("workspace-a");
       expect(createMessage.type).toBe("createTmuxSession");
+    });
+
+    it("should accept terminal backend selection messages", () => {
+      const backend: TerminalBackendType = "zellij";
+      const selectMessage: WebviewMessage = {
+        type: "selectTerminalBackend",
+        backend,
+      };
+      const cycleMessage: WebviewMessage = { type: "cycleTerminalBackend" };
+
+      expect(selectMessage.backend).toBe("zellij");
+      expect(cycleMessage.type).toBe("cycleTerminalBackend");
     });
 
     it("should accept executeTmuxCommand messages for supported toolbar commands", () => {

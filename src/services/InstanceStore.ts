@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import * as vscode from "vscode";
+import { TerminalBackendType } from "../types";
 
 export type InstanceId = string;
 
@@ -27,6 +28,8 @@ interface InstanceRuntime {
   pid?: number;
   terminalKey?: string;
   tmuxSessionId?: string;
+  zellijSessionId?: string;
+  terminalBackend?: TerminalBackendType;
   lastSeenAt?: number;
 }
 
