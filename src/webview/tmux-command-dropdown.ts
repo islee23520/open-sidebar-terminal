@@ -115,6 +115,7 @@ const commands: TmuxCommand[] = [
     label: "Select AI Tool",
     category: "Utility",
     requiresSession: false,
+    unsupportedBackends: ["native"],
     buildMessage: () => ({
       type: "requestAiToolSelector",
     }),
