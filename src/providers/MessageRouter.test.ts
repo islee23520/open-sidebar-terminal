@@ -6,6 +6,7 @@ import { MessageRouter } from "./MessageRouter";
 import { OutputChannelService } from "../services/OutputChannelService";
 import type { TerminalManager } from "../terminals/TerminalManager";
 import type { OutputCaptureManager } from "../services/OutputCaptureManager";
+import type { TerminalBackendType } from "../types";
 
 const mockWriteFile = vi.hoisted(() => vi.fn(async () => undefined));
 const mockUnlink = vi.hoisted(() => vi.fn(async () => undefined));
@@ -69,6 +70,7 @@ describe("MessageRouter", () => {
     return {
       startOpenCode: vi.fn(async () => undefined),
       switchToTmuxSession: vi.fn(async () => undefined),
+      switchToZellijSession: vi.fn(async () => undefined),
       killTmuxSession: vi.fn(async () => undefined),
       createTmuxSession: vi.fn(async () => "tmux-new"),
       toggleDashboard: vi.fn(),
@@ -98,7 +100,7 @@ describe("MessageRouter", () => {
       getSelectedTmuxSessionId: vi.fn(() => "tmux-selected"),
       isTmuxAvailable: vi.fn(() => true),
       isZellijAvailable: vi.fn(() => true),
-      getActiveBackend: () => "tmux",
+      getActiveBackend: vi.fn<() => TerminalBackendType>(() => "tmux"),
       getBackendAvailability: vi.fn(() => ({
         native: true,
         tmux: true,
@@ -301,6 +303,31 @@ describe("MessageRouter", () => {
     expect(provider.toggleDashboard).toHaveBeenCalledTimes(1);
     expect(provider.toggleEditorAttachment).toHaveBeenCalledTimes(1);
     expect(vscode.window.showTextDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes switchSession through zellij when zellij backend is active", async () => {
+    provider.getActiveBackend = vi.fn<() => TerminalBackendType>(() => "zellij");
+
+    await router.handleMessage({ type: "switchSession", sessionId: "zellij-a" });
+
+    expect(provider.switchToZellijSession).toHaveBeenCalledWith("zellij-a");
+    expect(provider.switchToTmuxSession).not.toHaveBeenCalled();
+  });
+
+  it("routes killSession through the backend-aware session runtime bridge for zellij", async () => {
+    provider.getActiveBackend = vi.fn<() => TerminalBackendType>(() => "zellij");
+
+    await router.handleMessage({ type: "killSession", sessionId: "zellij-b" });
+
+    expect(provider.killTmuxSession).toHaveBeenCalledWith("zellij-b");
+  });
+
+  it("routes zoomTmuxPane through the backend-aware session runtime bridge for zellij", async () => {
+    provider.getActiveBackend = vi.fn<() => TerminalBackendType>(() => "zellij");
+
+    await router.handleMessage({ type: "zoomTmuxPane" });
+
+    expect(provider.zoomTmuxPane).toHaveBeenCalledTimes(1);
   });
 
   it("routes filesDropped with shift and pane fallback or direct terminal writes", async () => {

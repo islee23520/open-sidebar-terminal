@@ -80,6 +80,7 @@ export class TerminalProvider
     const routerBridge: MessageRouterProviderBridge = {
       startOpenCode: () => this.startOpenCode(),
       switchToTmuxSession: (sessionId) => this.switchToTmuxSession(sessionId),
+      switchToZellijSession: (sessionId) => this.switchToZellijSession(sessionId),
       killTmuxSession: (sessionId) => this.killTmuxSession(sessionId),
       createTmuxSession: () => this.createTmuxSession(),
       toggleDashboard: () => this.toggleDashboard(),
@@ -330,6 +331,10 @@ export class TerminalProvider
 
   public async switchToTmuxSession(sessionId: string): Promise<void> {
     await this.sessionRuntime.switchToTmuxSession(sessionId);
+  }
+
+  public async switchToZellijSession(sessionId: string): Promise<void> {
+    await this.sessionRuntime.switchToZellijSession(sessionId);
   }
 
   public resolveInstanceIdFromSessionId(sessionId: string): InstanceId {
