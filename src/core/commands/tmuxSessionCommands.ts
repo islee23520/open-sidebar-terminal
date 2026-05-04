@@ -5,6 +5,8 @@ import type { InstanceQuickPick } from "../../services/InstanceQuickPick";
 import type { InstanceStore } from "../../services/InstanceStore";
 import type { OutputChannelService } from "../../services/OutputChannelService";
 import type { TmuxSessionManager } from "../../services/TmuxSessionManager";
+import type { ZellijSessionManager } from "../../services/ZellijSessionManager";
+import type { TerminalBackendType } from "../../types";
 
 export interface TmuxSessionCommandDependencies {
   provider: TerminalProvider | undefined;
@@ -13,6 +15,17 @@ export interface TmuxSessionCommandDependencies {
   instanceQuickPick: InstanceQuickPick | undefined;
   outputChannel: OutputChannelService | undefined;
   tmuxManager: TmuxSessionManager | undefined;
+  zellijManager?: ZellijSessionManager | undefined;
+}
+
+function getActiveBackend(
+  instanceStore: InstanceStore | undefined,
+): TerminalBackendType {
+  try {
+    return instanceStore?.getActive().runtime.terminalBackend ?? "tmux";
+  } catch {
+    return "tmux";
+  }
 }
 
 export function registerTmuxSessionCommands(
@@ -196,22 +209,29 @@ export function registerTmuxSessionCommands(
   const browseTmuxSessionsCommand = vscode.commands.registerCommand(
     "opencodeTui.browseTmuxSessions",
     async () => {
-      if (!deps.tmuxManager || !deps.provider) {
+      const activeBackend = getActiveBackend(deps.instanceStore);
+      const sessionManager =
+        activeBackend === "zellij" ? deps.zellijManager : deps.tmuxManager;
+      const backendLabel = activeBackend === "zellij" ? "zellij" : "tmux";
+
+      if (!sessionManager || !deps.provider) {
         vscode.window.showWarningMessage(
-          "tmux is not available or the terminal provider is not initialized",
+          `${backendLabel} is not available or the terminal provider is not initialized`,
         );
         return;
       }
 
       try {
-        const sessions = await deps.tmuxManager.discoverSessions();
+        const sessions = await sessionManager.discoverSessions();
         if (sessions.length === 0) {
-          vscode.window.showInformationMessage("No tmux sessions found");
+          vscode.window.showInformationMessage(`No ${backendLabel} sessions found`);
           return;
         }
 
         const activeSessionId =
-          deps.instanceStore?.getActive()?.runtime.tmuxSessionId;
+          activeBackend === "zellij"
+            ? deps.instanceStore?.getActive()?.runtime.zellijSessionId
+            : deps.instanceStore?.getActive()?.runtime.tmuxSessionId;
 
         const items = sessions.map((session) => ({
           label: session.name,
@@ -229,7 +249,7 @@ export function registerTmuxSessionCommands(
         const picked = await vscode.window.showQuickPick(items, {
           placeHolder: activeSessionId
             ? `Current: ${activeSessionId} — select a session to switch`
-            : "Select a tmux session to attach",
+            : `Select a ${backendLabel} session to attach`,
           matchOnDescription: true,
           matchOnDetail: true,
         });
@@ -245,7 +265,11 @@ export function registerTmuxSessionCommands(
           return;
         }
 
-        await deps.provider.switchToTmuxSession(picked.session.id);
+        if (activeBackend === "zellij") {
+          await deps.provider.switchToZellijSession(picked.session.id);
+        } else {
+          await deps.provider.switchToTmuxSession(picked.session.id);
+        }
         await vscode.commands.executeCommand("opencodeTui.focus");
       } catch (error) {
         deps.outputChannel?.error(

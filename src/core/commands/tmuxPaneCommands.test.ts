@@ -6,6 +6,12 @@ import {
   type TmuxPane,
 } from "../../services/TmuxSessionManager";
 import type { TerminalProvider } from "../../providers/TerminalProvider";
+import { InstanceStore } from "../../services/InstanceStore";
+import {
+  ZellijSessionManager,
+  type ZellijPane,
+  type ZellijTab,
+} from "../../services/ZellijSessionManager";
 import {
   registerTmuxPaneCommands,
   type TmuxPaneCommandDependencies,
@@ -53,6 +59,25 @@ type Harness = {
   killSession: ReturnType<typeof vi.fn>;
 };
 
+type ZellijHarness = {
+  deps: TmuxPaneCommandDependencies;
+  zellijManager: ZellijSessionManager;
+  handlers: Map<string, RegisteredCommandHandler>;
+  selectPane: ReturnType<typeof vi.fn>;
+  listPanes: ReturnType<typeof vi.fn>;
+  splitPane: ReturnType<typeof vi.fn>;
+  sendTextToPane: ReturnType<typeof vi.fn>;
+  resizePane: ReturnType<typeof vi.fn>;
+  killPane: ReturnType<typeof vi.fn>;
+  nextTab: ReturnType<typeof vi.fn>;
+  prevTab: ReturnType<typeof vi.fn>;
+  createTab: ReturnType<typeof vi.fn>;
+  listTabs: ReturnType<typeof vi.fn>;
+  killTab: ReturnType<typeof vi.fn>;
+  selectTab: ReturnType<typeof vi.fn>;
+  killSession: ReturnType<typeof vi.fn>;
+};
+
 const defaultPanes: TmuxPane[] = [
   {
     paneId: "%1",
@@ -81,6 +106,16 @@ const defaultWindows: WindowEntry[] = [
     name: "logs",
     isActive: false,
   },
+];
+
+const defaultZellijPanes: ZellijPane[] = [
+  { id: "terminal_1", title: "editor", isFocused: true, isFloating: false },
+  { id: "terminal_2", title: "shell", isFocused: false, isFloating: false },
+];
+
+const defaultZellijTabs: ZellijTab[] = [
+  { index: 1, name: "main", isActive: true },
+  { index: 2, name: "logs", isActive: false },
 ];
 
 function createHarness(options?: {
@@ -150,6 +185,8 @@ function createHarness(options?: {
 
   const deps: TmuxPaneCommandDependencies = {
     tmuxManager,
+    zellijManager: undefined,
+    instanceStore: undefined,
     resolveActiveTmuxSessionId,
     resolveActiveTmuxFocus,
     resolveWorkspacePath: vi.fn(() => "/test/workspace"),
@@ -189,6 +226,103 @@ function createHarness(options?: {
   };
 }
 
+function createZellijHarness(options?: {
+  sessionId?: string | undefined;
+  panes?: ZellijPane[];
+  tabs?: ZellijTab[];
+}): ZellijHarness {
+  const zellijManager = new ZellijSessionManager();
+  const tmuxManager = new TmuxSessionManager();
+  const provider = new vscodeMock.Disposable(
+    () => {},
+  ) as unknown as TerminalProvider;
+  const instanceStore = new InstanceStore();
+  instanceStore.upsert({
+    config: { id: "instance-1", label: "Instance 1" },
+    runtime: {
+      terminalBackend: "zellij",
+      zellijSessionId:
+        options && "sessionId" in options ? options.sessionId : "zellij-1",
+    },
+    state: "connected",
+  });
+
+  const selectPane = vi
+    .spyOn(zellijManager, "selectPane")
+    .mockResolvedValue(undefined);
+  const listPanes = vi
+    .spyOn(zellijManager, "listPanes")
+    .mockResolvedValue(options?.panes ?? defaultZellijPanes);
+  const splitPane = vi
+    .spyOn(zellijManager, "splitPane")
+    .mockResolvedValue("terminal_new");
+  const sendTextToPane = vi
+    .spyOn(zellijManager, "sendTextToPane")
+    .mockResolvedValue(undefined);
+  const resizePane = vi
+    .spyOn(zellijManager, "resizePane")
+    .mockResolvedValue(undefined);
+  const killPane = vi
+    .spyOn(zellijManager, "killPane")
+    .mockResolvedValue(undefined);
+  const nextTab = vi.spyOn(zellijManager, "nextTab").mockResolvedValue(undefined);
+  const prevTab = vi.spyOn(zellijManager, "prevTab").mockResolvedValue(undefined);
+  const createTab = vi
+    .spyOn(zellijManager, "createTab")
+    .mockResolvedValue(undefined);
+  const listTabs = vi
+    .spyOn(zellijManager, "listTabs")
+    .mockResolvedValue(options?.tabs ?? defaultZellijTabs);
+  const killTab = vi.spyOn(zellijManager, "killTab").mockResolvedValue(undefined);
+  const selectTab = vi
+    .spyOn(zellijManager, "selectTab")
+    .mockResolvedValue(undefined);
+  const killSession = vi
+    .spyOn(zellijManager, "killSession")
+    .mockResolvedValue(undefined);
+  const tmuxSplitPane = vi.spyOn(tmuxManager, "splitPane");
+
+  const deps: TmuxPaneCommandDependencies = {
+    tmuxManager,
+    zellijManager,
+    instanceStore,
+    resolveActiveTmuxSessionId: vi.fn(() => undefined),
+    resolveActiveTmuxFocus: vi.fn(async () => undefined),
+    resolveWorkspacePath: vi.fn(() => "/test/workspace"),
+    provider,
+  };
+  registerTmuxPaneCommands(deps);
+
+  const handlers = new Map(
+    vi
+      .mocked(vscode.commands.registerCommand)
+      .mock.calls.map(([id, callback]) => [
+        id,
+        callback as RegisteredCommandHandler,
+      ]),
+  );
+  expect(tmuxSplitPane).not.toHaveBeenCalled();
+
+  return {
+    deps,
+    zellijManager,
+    handlers,
+    selectPane,
+    listPanes,
+    splitPane,
+    sendTextToPane,
+    resizePane,
+    killPane,
+    nextTab,
+    prevTab,
+    createTab,
+    listTabs,
+    killTab,
+    selectTab,
+    killSession,
+  };
+}
+
 function panePick(paneId: string, label: string, description: string) {
   return { label, description, paneId };
 }
@@ -212,7 +346,7 @@ function mockWarningOnce(value: string | undefined): void {
 }
 
 function getHandler(
-  harness: Harness,
+  harness: { handlers: Map<string, RegisteredCommandHandler> },
   commandId: string,
 ): RegisteredCommandHandler {
   const handler = harness.handlers.get(commandId);
@@ -600,6 +734,89 @@ describe("registerTmuxPaneCommands", () => {
     expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
       "Failed to kill session",
     );
+  });
+
+  it("routes pane operations to zellij when zellij is active", async () => {
+    const harness = createZellijHarness();
+
+    await getHandler(harness, "opencodeTui.tmuxSwitchPane")({
+      paneId: "terminal_2",
+    });
+    expect(harness.selectPane).toHaveBeenCalledWith("terminal_2");
+
+    await getHandler(harness, "opencodeTui.tmuxSplitPaneH")({
+      paneId: "terminal_1",
+      sessionId: "zellij-1",
+    });
+    expect(harness.selectPane).toHaveBeenLastCalledWith("terminal_1");
+    expect(harness.splitPane).toHaveBeenCalledWith("h", {
+      workingDirectory: "/test/workspace",
+    });
+
+    mockInputBoxOnce("pwd");
+    await getHandler(harness, "opencodeTui.tmuxSendTextToPane")({
+      paneId: "terminal_2",
+    });
+    expect(harness.selectPane).toHaveBeenLastCalledWith("terminal_2");
+    expect(harness.sendTextToPane).toHaveBeenCalledWith("pwd");
+
+    mockQuickPickOnce("Left");
+    mockInputBoxOnce("4");
+    await getHandler(harness, "opencodeTui.tmuxResizePane")({
+      paneId: "terminal_2",
+    });
+    expect(harness.resizePane).toHaveBeenCalledWith("left", 4);
+  });
+
+  it("routes zellij tab and session commands and disables swap", async () => {
+    const harness = createZellijHarness();
+
+    await getHandler(harness, "opencodeTui.tmuxNextWindow")();
+    await getHandler(harness, "opencodeTui.tmuxPrevWindow")();
+    await getHandler(harness, "opencodeTui.tmuxCreateWindow")();
+    expect(harness.nextTab).toHaveBeenCalledTimes(1);
+    expect(harness.prevTab).toHaveBeenCalledTimes(1);
+    expect(harness.createTab).toHaveBeenCalledWith({
+      workingDirectory: "/test/workspace",
+    });
+
+    mockQuickPickOnce(windowPick("2", "Tab 2: logs", "2"));
+    await getHandler(harness, "opencodeTui.tmuxSelectWindow")();
+    expect(harness.listTabs).toHaveBeenCalledTimes(1);
+    expect(harness.selectTab).toHaveBeenCalledWith(2);
+
+    mockWarningOnce("Kill");
+    await getHandler(harness, "opencodeTui.tmuxKillWindow")({ windowId: "2" });
+    expect(harness.selectTab).toHaveBeenLastCalledWith(2);
+    expect(harness.killTab).toHaveBeenCalledTimes(1);
+
+    await getHandler(harness, "opencodeTui.tmuxSwapPane")({
+      paneId: "terminal_1",
+    });
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+      "Swap pane is not supported for zellij",
+    );
+
+    mockWarningOnce("Kill");
+    await getHandler(harness, "opencodeTui.tmuxKillSession")();
+    expect(harness.killSession).toHaveBeenCalledWith("zellij-1");
+  });
+
+  it("no-ops pane commands for native backend", async () => {
+    const harness = createZellijHarness();
+    harness.deps.instanceStore?.upsert({
+      config: { id: "instance-1", label: "Instance 1" },
+      runtime: { terminalBackend: "native" },
+      state: "connected",
+    });
+
+    await getHandler(harness, "opencodeTui.tmuxSwitchPane")({
+      paneId: "terminal_2",
+    });
+    await getHandler(harness, "opencodeTui.tmuxNextWindow")();
+
+    expect(harness.selectPane).not.toHaveBeenCalled();
+    expect(harness.nextTab).not.toHaveBeenCalled();
   });
 
   it("refreshes the terminal manager", async () => {

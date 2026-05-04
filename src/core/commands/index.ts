@@ -3,11 +3,7 @@ import type { ContextManager } from "../../services/ContextManager";
 import type { ContextSharingService } from "../../services/ContextSharingService";
 import type { InstanceController } from "../../services/InstanceController";
 import type { InstanceQuickPick } from "../../services/InstanceQuickPick";
-import type { InstanceStore } from "../../services/InstanceStore";
-import type { OutputChannelService } from "../../services/OutputChannelService";
 import type { TerminalManager } from "../../terminals/TerminalManager";
-import type { TerminalProvider } from "../../providers/TerminalProvider";
-import type { TmuxSessionManager } from "../../services/TmuxSessionManager";
 import {
   registerTerminalCommands,
   type TerminalCommandDependencies,
@@ -25,18 +21,16 @@ import {
   type DashboardCommandDependencies,
 } from "./dashboardCommands";
 
-export interface RegisterCommandDependencies
-  extends
-    TerminalCommandDependencies,
-    TmuxSessionCommandDependencies,
-    TmuxPaneCommandDependencies,
-    DashboardCommandDependencies {
+export type RegisterCommandDependencies = TerminalCommandDependencies &
+  TmuxSessionCommandDependencies &
+  TmuxPaneCommandDependencies &
+  DashboardCommandDependencies & {
   terminalManager: TerminalManager | undefined;
   contextSharingService: ContextSharingService | undefined;
   contextManager: ContextManager | undefined;
   instanceController: InstanceController | undefined;
   instanceQuickPick: InstanceQuickPick | undefined;
-}
+};
 
 export function registerCommands(
   context: vscode.ExtensionContext,

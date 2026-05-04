@@ -5,7 +5,6 @@ import { TerminalManager } from "../terminals/TerminalManager";
 import { OutputCaptureManager } from "../services/OutputCaptureManager";
 import { ContextSharingService } from "../services/ContextSharingService";
 import { ContextManager } from "../services/ContextManager";
-import type { ILogger } from "../services/ILogger";
 import { OutputChannelService } from "../services/OutputChannelService";
 import { InstanceDiscoveryService } from "../services/InstanceDiscoveryService";
 import { OpenCodeApiClient } from "../services/OpenCodeApiClient";
@@ -284,6 +283,9 @@ export class ExtensionLifecycle {
       },
       get tmuxManager() {
         return self.tmuxSessionManager;
+      },
+      get zellijManager() {
+        return self.zellijSessionManager;
       },
       get terminalManager() {
         return self.terminalManager;

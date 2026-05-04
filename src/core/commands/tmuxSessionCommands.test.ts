@@ -7,6 +7,7 @@ import { InstanceController } from "../../services/InstanceController";
 import { InstanceQuickPick } from "../../services/InstanceQuickPick";
 import { OutputChannelService } from "../../services/OutputChannelService";
 import { TmuxSessionManager } from "../../services/TmuxSessionManager";
+import { ZellijSessionManager } from "../../services/ZellijSessionManager";
 
 const vscode = await vi.importActual<typeof vscodeTypes>(
   "../../test/mocks/vscode",
@@ -39,6 +40,7 @@ type CommandHandlers = {
 function createProvider(): TerminalProvider {
   return Object.assign(Object.create(TerminalProvider.prototype), {
     switchToTmuxSession: vi.fn().mockResolvedValue(undefined),
+    switchToZellijSession: vi.fn().mockResolvedValue(undefined),
     createTmuxSession: vi.fn().mockResolvedValue(undefined),
     killTmuxSession: vi.fn().mockResolvedValue(undefined),
     switchToNativeShell: vi.fn().mockResolvedValue(undefined),
@@ -68,6 +70,14 @@ function createTmuxManager(
   sessions: SessionSummary[] = [],
 ): TmuxSessionManager {
   return Object.assign(Object.create(TmuxSessionManager.prototype), {
+    discoverSessions: vi.fn().mockResolvedValue(sessions),
+  });
+}
+
+function createZellijManager(
+  sessions: SessionSummary[] = [],
+): ZellijSessionManager {
+  return Object.assign(Object.create(ZellijSessionManager.prototype), {
     discoverSessions: vi.fn().mockResolvedValue(sessions),
   });
 }
@@ -667,6 +677,55 @@ describe("registerTmuxSessionCommands", () => {
     expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
       "opencodeTui.focus",
     );
+  });
+
+  it("browses and switches zellij sessions when zellij is the active backend", async () => {
+    const provider = createProvider();
+    const tmuxManager = createTmuxManager([
+      { id: "tmux-a", name: "tmux", workspace: "/tmux" },
+    ]);
+    const zellijManager = createZellijManager([
+      { id: "zellij-b", name: "beta", workspace: "/beta" },
+      { id: "zellij-a", name: "alpha", workspace: "/alpha" },
+    ]);
+    const instanceStore = createInstanceStore([
+      {
+        config: { id: "instance-1", label: "Instance 1" },
+        runtime: {
+          terminalBackend: "zellij",
+          zellijSessionId: "zellij-a",
+        },
+        state: "connected",
+      },
+    ]);
+    vi.mocked(vscode.window.showQuickPick).mockImplementation(async (items) => {
+      const quickPickItems = items as Array<{
+        label: string;
+        session: SessionSummary;
+      }>;
+      expect(quickPickItems.map((item) => item.label)).toEqual([
+        "alpha",
+        "beta",
+      ]);
+      return quickPickItems[1];
+    });
+
+    registerTmuxSessionCommands({
+      provider,
+      instanceStore,
+      instanceController: undefined,
+      instanceQuickPick: undefined,
+      outputChannel: undefined,
+      tmuxManager,
+      zellijManager,
+    });
+
+    await getCommandHandlers().browseTmuxSessions();
+
+    expect(tmuxManager.discoverSessions).not.toHaveBeenCalled();
+    expect(zellijManager.discoverSessions).toHaveBeenCalledTimes(1);
+    expect(provider.switchToZellijSession).toHaveBeenCalledWith("zellij-b");
+    expect(provider.switchToTmuxSession).not.toHaveBeenCalled();
   });
 
   it("logs and shows errors when browsing tmux sessions fails", async () => {
