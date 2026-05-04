@@ -412,6 +412,7 @@ export class ZellijSessionManager {
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean)
+      .filter((line) => !/^(TAB_ID|PANE_ID)\b/i.test(line))
       .map((line, index) => this.parseTabFromLine(line, index + 1))
       .filter(Boolean);
   }
@@ -463,21 +464,30 @@ export class ZellijSessionManager {
   }
 
   private parseTabFromLine(line: string, fallbackIndex: number): ZellijTab {
-    const tabParts = line.split("\t");
-    if (tabParts.length >= 3) {
+    // zellij action list-tabs output is whitespace-separated:
+    // "TAB_ID  POSITION  NAME" (header) then "0  0  Tab #1"
+    const parts = line.split(/\s{2,}|\t+/).map((p) => p.trim()).filter(Boolean);
+    if (parts.length >= 3) {
+      const numericId = Number(parts[0]);
+      const numericPos = Number(parts[1]);
+      const positionIndex =
+        Number.isFinite(numericPos) && numericPos >= 0
+          ? numericPos + 1
+          : Number.isFinite(numericId) && numericId >= 0
+            ? numericId + 1
+            : fallbackIndex;
       return {
-        index: Number(tabParts[0]) || fallbackIndex,
-        name: tabParts[1]?.trim() ?? `Tab ${fallbackIndex}`,
-        isActive: this.parseBooleanToken(tabParts[2]),
+        index: positionIndex,
+        name: parts[2] ?? `Tab ${positionIndex}`,
+        isActive: this.parseBooleanToken(parts[3]),
       };
     }
-
-    const numbered = line.match(/^\s*(\d+)\s*[:.)-]?\s*(.*?)\s*$/);
+    const numbered = line.match(/^\s*(\d+)\s*[:.)\-]?\s*(.*?)\s*$/);
     const index = numbered?.[1] ? Number(numbered[1]) : fallbackIndex;
     const rawName = numbered?.[2] ?? line;
     const name = rawName
       .replace(/\b(active|current|focused)\b/gi, "")
-      .replace(/[()[\]{}*:]/g, "")
+      .replace(/[()\[\]{}*:]/g, "")
       .trim();
     return {
       index,

@@ -247,11 +247,17 @@ describe("ZellijSessionManager", () => {
     expect(execCalls[0]?.cwd).toBe("/tmp/repo");
   });
 
-  it("parses tab-separated tab output", async () => {
-    mockExecSequence([{ stdout: "1\tmain\ttrue\n2\ttests\tfalse\n" }]);
+  it("parses zellij action list-tabs columnar output", async () => {
+    // Real zellij 0.44.1 output: 'TAB_ID  POSITION  NAME'
+    mockExecSequence([
+      {
+        stdout: "TAB_ID  POSITION  NAME\n0  0  main\n1  1  tests\n",
+      },
+    ]);
 
+    // POSITION 0 → display index 1, POSITION 1 → display index 2
     await expect(manager.listTabs()).resolves.toEqual([
-      { index: 1, name: "main", isActive: true },
+      { index: 1, name: "main", isActive: false },
       { index: 2, name: "tests", isActive: false },
     ]);
   });
