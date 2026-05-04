@@ -115,6 +115,7 @@ describe("TerminalProvider", () => {
   function createProvider(options?: {
     instanceStore?: InstanceStore;
     tmuxSessionManager?: TmuxSessionManager;
+    zellijSessionManager?: any;
   }): TerminalProvider {
     const context = new vscode.ExtensionContext();
     const portManager = new PortManager();
@@ -125,6 +126,7 @@ describe("TerminalProvider", () => {
       portManager,
       options?.instanceStore,
       options?.tmuxSessionManager,
+      options?.zellijSessionManager,
     );
   }
 
@@ -396,6 +398,7 @@ describe("TerminalProvider", () => {
 
     provider = createProvider({ instanceStore, tmuxSessionManager });
     resolveProvider(provider);
+    vi.spyOn((provider as any).sessionRuntime, "getActiveBackend").mockReturnValue("tmux");
 
     await provider.launchAiTool("tmux-codex", "codex", true);
 
@@ -1154,6 +1157,7 @@ describe("TerminalProvider", () => {
     } as unknown as TmuxSessionManager;
 
     provider = createProvider({ instanceStore, tmuxSessionManager });
+    vi.spyOn((provider as any).sessionRuntime, "getActiveBackend").mockReturnValue("tmux");
 
     await provider.launchAiTool("repo-launch", "codex", true);
 
@@ -1192,6 +1196,7 @@ describe("TerminalProvider", () => {
     } as unknown as TmuxSessionManager;
 
     provider = createProvider({ instanceStore, tmuxSessionManager });
+    vi.spyOn((provider as any).sessionRuntime, "getActiveBackend").mockReturnValue("tmux");
 
     await provider.launchAiTool("repo-direct-pane", "opencode", false, "%77");
 
@@ -1247,6 +1252,7 @@ describe("TerminalProvider", () => {
     } as unknown as TmuxSessionManager;
 
     provider = createProvider({ tmuxSessionManager });
+    vi.spyOn((provider as any).sessionRuntime, "getActiveBackend").mockReturnValue("tmux");
     const warnSpy = vi.spyOn((provider as any).logger, "warn");
 
     await provider.launchAiTool("repo-no-pane", "codex", false);
@@ -1265,12 +1271,42 @@ describe("TerminalProvider", () => {
     } as unknown as TmuxSessionManager;
 
     provider = createProvider({ tmuxSessionManager });
+    vi.spyOn((provider as any).sessionRuntime, "getActiveBackend").mockReturnValue("tmux");
     const warnSpy = vi.spyOn((provider as any).logger, "warn");
 
     await provider.launchAiTool("repo-launch-error", "codex", false);
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("Failed to launch AI tool: tmux unavailable"),
+    );
+  });
+
+  it("launches AI tool against zellij focused pane when zellij backend active", async () => {
+    mockConfiguration();
+    const zellijSelectPane = vi.fn().mockResolvedValue(undefined);
+    const zellijSendTextToPane = vi.fn().mockResolvedValue(undefined);
+    const zellijSessionManager = {
+      isAvailable: vi.fn().mockResolvedValue(true),
+      selectPane: zellijSelectPane,
+      sendTextToPane: zellijSendTextToPane,
+    } as any;
+
+    provider = createProvider({ zellijSessionManager });
+    vi.spyOn((provider as any).sessionRuntime, "getActiveBackend").mockReturnValue("zellij");
+
+    await provider.launchAiTool("zellij-session", "codex", false, "terminal_5");
+
+    expect(zellijSelectPane).toHaveBeenCalledWith("terminal_5");
+    expect(zellijSendTextToPane).toHaveBeenCalledWith("codex", { submit: true });
+  });
+
+  it("executeRawTmuxCommand rejects when active backend is not tmux", async () => {
+    mockConfiguration();
+    provider = createProvider();
+    vi.spyOn((provider as any).sessionRuntime, "getActiveBackend").mockReturnValue("zellij");
+
+    await expect(provider.executeRawTmuxCommand("rename-session")).rejects.toThrow(
+      /only supported on the tmux backend/i,
     );
   });
 
@@ -1625,6 +1661,7 @@ describe("TerminalProvider", () => {
       instanceStore: activeStore,
       tmuxSessionManager: rawTmuxManager,
     });
+    vi.spyOn((provider as any).sessionRuntime, "getActiveBackend").mockReturnValue("tmux");
     vi.mocked(vscode.window.showInputBox).mockResolvedValueOnce(
       "renamed-session",
     );

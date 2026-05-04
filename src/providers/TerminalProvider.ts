@@ -367,6 +367,11 @@ export class TerminalProvider
     subcommand: string,
     args: string[] = [],
   ): Promise<string> {
+    if (this.sessionRuntime.getActiveBackend() !== "tmux") {
+      throw new Error(
+        "Raw tmux subcommands are only supported on the tmux backend",
+      );
+    }
     if (!this.tmuxSessionManager) {
       throw new Error("tmux session manager unavailable");
     }
@@ -427,10 +432,6 @@ export class TerminalProvider
       );
     }
 
-    if (!this.tmuxSessionManager) {
-      return;
-    }
-
     const tool = this.sessionRuntime.resolveToolByName(toolName);
     if (!tool) {
       return;
@@ -440,11 +441,37 @@ export class TerminalProvider
       this.sessionRuntime.resolveInstanceIdFromSessionId(sessionId);
     this.sessionRuntime.rememberSelectedTool(tool.name, instanceId);
 
-    const effectiveSessionId =
-      this.sessionRuntime.resolveTmuxSessionIdForInstance(instanceId) ??
-      sessionId;
+    const operator = this.aiToolRegistry.getForConfig(tool);
+    const launchCommand = operator.getLaunchCommand(tool);
+    const activeBackend = this.sessionRuntime.getActiveBackend();
 
     try {
+      if (activeBackend === "zellij") {
+        if (!this.zellijSessionManager) {
+          this.logger.warn(
+            "[TerminalProvider] launchAiTool skipped: zellij manager unavailable",
+          );
+          return;
+        }
+        if (targetPaneId) {
+          await this.zellijSessionManager.selectPane(targetPaneId);
+        }
+        await this.zellijSessionManager.sendTextToPane(launchCommand, {
+          submit: true,
+        });
+        return;
+      }
+
+      if (activeBackend !== "tmux" || !this.tmuxSessionManager) {
+        this.logger.warn(
+          `[TerminalProvider] launchAiTool skipped: backend ${activeBackend} does not support pane targeting`,
+        );
+        return;
+      }
+
+      const effectiveSessionId =
+        this.sessionRuntime.resolveTmuxSessionIdForInstance(instanceId) ??
+        sessionId;
       let paneIdToUse: string | undefined = targetPaneId;
       if (!paneIdToUse) {
         const panes = await this.tmuxSessionManager.listPanes(
@@ -455,10 +482,9 @@ export class TerminalProvider
         paneIdToUse = targetPane?.paneId;
       }
       if (paneIdToUse) {
-        const operator = this.aiToolRegistry.getForConfig(tool);
         await this.tmuxSessionManager.sendTextToPane(
           paneIdToUse,
-          operator.getLaunchCommand(tool),
+          launchCommand,
         );
       } else {
         this.logger.warn(
