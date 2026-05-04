@@ -2,6 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  setupTmuxCommandButton,
   setupBackendToggleButton,
   updateBackendToggleButtonState,
 } from "./index";
@@ -55,5 +56,21 @@ describe("toolbar backend toggle", () => {
     expect(button.disabled).toBe(false);
     expect(button.title).toBe("Switch to Native Shell");
     expect(button.textContent).toBe("Z");
+  });
+
+  it("opens command dropdown with the active zellij backend", async () => {
+    document.body.innerHTML = `
+      <button id="btn-tmux-commands"></button>
+      <div id="tmux-command-dropdown" style="display:none"></div>
+      <input id="tmux-cmd-search-input" />
+      <div id="tmux-command-list"></div>
+    `;
+
+    setupTmuxCommandButton(() => "repo-a", () => "zellij");
+    document.getElementById("btn-tmux-commands")?.click();
+
+    const listText = document.getElementById("tmux-command-list")?.textContent ?? "";
+    expect(listText).toContain("New Tab");
+    expect(listText).not.toContain("Swap Pane");
   });
 });

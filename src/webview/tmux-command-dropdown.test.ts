@@ -64,4 +64,21 @@ describe("tmux command dropdown", () => {
       type: "requestAiToolSelector",
     });
   });
+
+  it("uses zellij tab labels and hides unsupported tmux-only commands", () => {
+    document.body.innerHTML = `
+      <div id="tmux-command-dropdown" style="display:none"></div>
+      <input id="tmux-cmd-search-input" />
+      <div id="tmux-command-list"></div>
+    `;
+
+    show("session-1", "zellij");
+
+    const listText = document.getElementById("tmux-command-list")?.textContent ?? "";
+    expect(listText).toContain("New Tab");
+    expect(listText).toContain("Next Tab");
+    expect(listText).not.toContain("New Window");
+    expect(listText).not.toContain("Swap Pane");
+    expect(listText).not.toContain("Rename Window");
+  });
 });

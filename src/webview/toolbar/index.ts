@@ -5,10 +5,13 @@ import * as TmuxCmd from "../tmux-command-dropdown";
 
 export function setupTmuxCommandButton(
   getSessionId: () => string | null,
+  getActiveBackend: () => TerminalBackendType = () => "tmux",
 ): void {
   const btnTmuxCommands = document.getElementById("btn-tmux-commands");
   btnTmuxCommands?.addEventListener("click", () => {
-    TmuxCmd.isVisible() ? TmuxCmd.hide() : TmuxCmd.show(getSessionId());
+    TmuxCmd.isVisible()
+      ? TmuxCmd.hide()
+      : TmuxCmd.show(getSessionId(), getActiveBackend());
   });
 }
 

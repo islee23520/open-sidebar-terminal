@@ -35,7 +35,7 @@ function toggleTmuxCommandMenu(): void {
   if (TmuxCmd.isVisible()) {
     TmuxCmd.hide();
   } else {
-    TmuxCmd.show(currentSessionId);
+    TmuxCmd.show(currentSessionId, activeBackend);
   }
 }
 
@@ -74,7 +74,7 @@ const callbacks: MessageHandlerCallbacks = {
         label.textContent = backendPrefix + message.sessionName + windowSuffix;
       }
       if (toolbarControls) {
-        if (activeBackend === "tmux") {
+        if (activeBackend === "tmux" || activeBackend === "zellij") {
           toolbarControls.classList.remove("hidden");
         } else {
           toolbarControls.classList.add("hidden");
@@ -178,7 +178,7 @@ function initApp(): void {
 
   setupReloadButton();
   setupEditorAttachmentButton();
-  setupTmuxCommandButton(() => currentSessionId);
+  setupTmuxCommandButton(() => currentSessionId, () => activeBackend);
   setupBackendToggleButton(() => activeBackend);
 
   window.addEventListener("message", (event: MessageEvent) => {
@@ -227,7 +227,7 @@ function setupAiToolSelectorEvents(): void {
         if (TmuxCmd.isVisible()) {
           TmuxCmd.hide();
         } else {
-          TmuxCmd.show(currentSessionId);
+          TmuxCmd.show(currentSessionId, activeBackend);
         }
       }
       return;

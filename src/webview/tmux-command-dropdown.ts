@@ -1,4 +1,5 @@
 import type { WebviewMessage } from "../types";
+import type { TerminalBackendType } from "../types";
 import { postMessage } from "./shared/vscode-api";
 import { escapeHtml } from "./dashboard/utils";
 
@@ -18,6 +19,7 @@ interface TmuxCommand {
   label: string;
   category: string;
   requiresSession: boolean;
+  unsupportedBackends?: TerminalBackendType[];
   buildMessage: (activeSessionId: string | null) => TmuxDropdownMessage;
 }
 
@@ -25,6 +27,7 @@ let visible = false;
 let query = "";
 let focusedIndex = 0;
 let activeSessionId: string | null = null;
+let activeBackend: TerminalBackendType = "tmux";
 
 const commands: TmuxCommand[] = [
   {
@@ -181,6 +184,7 @@ const commands: TmuxCommand[] = [
     label: "Swap Pane",
     category: "Pane",
     requiresSession: true,
+    unsupportedBackends: ["zellij"],
     buildMessage: () => ({
       type: "executeTmuxCommand",
       commandId: "opencodeTui.tmuxSwapPane",
@@ -220,6 +224,7 @@ const commands: TmuxCommand[] = [
     label: "Rename Session",
     category: "Native",
     requiresSession: true,
+    unsupportedBackends: ["zellij"],
     buildMessage: () => ({
       type: "executeTmuxRawCommand",
       subcommand: "rename-session",
@@ -230,6 +235,7 @@ const commands: TmuxCommand[] = [
     label: "Rename Window",
     category: "Native",
     requiresSession: true,
+    unsupportedBackends: ["zellij"],
     buildMessage: () => ({
       type: "executeTmuxRawCommand",
       subcommand: "rename-window",
@@ -240,6 +246,7 @@ const commands: TmuxCommand[] = [
     label: "Last Window",
     category: "Native",
     requiresSession: true,
+    unsupportedBackends: ["zellij"],
     buildMessage: () => ({
       type: "executeTmuxRawCommand",
       subcommand: "last-window",
@@ -250,6 +257,7 @@ const commands: TmuxCommand[] = [
     label: "Last Pane",
     category: "Native",
     requiresSession: true,
+    unsupportedBackends: ["zellij"],
     buildMessage: () => ({
       type: "executeTmuxRawCommand",
       subcommand: "last-pane",
@@ -260,6 +268,7 @@ const commands: TmuxCommand[] = [
     label: "Rotate Window",
     category: "Native",
     requiresSession: true,
+    unsupportedBackends: ["zellij"],
     buildMessage: () => ({
       type: "executeTmuxRawCommand",
       subcommand: "rotate-window",
@@ -270,6 +279,7 @@ const commands: TmuxCommand[] = [
     label: "Select Layout",
     category: "Native",
     requiresSession: true,
+    unsupportedBackends: ["zellij"],
     buildMessage: () => ({
       type: "executeTmuxRawCommand",
       subcommand: "select-layout",
@@ -280,6 +290,7 @@ const commands: TmuxCommand[] = [
     label: "Display Panes",
     category: "Native",
     requiresSession: true,
+    unsupportedBackends: ["zellij"],
     buildMessage: () => ({
       type: "executeTmuxRawCommand",
       subcommand: "display-panes",
@@ -290,6 +301,7 @@ const commands: TmuxCommand[] = [
     label: "Copy Mode",
     category: "Native",
     requiresSession: true,
+    unsupportedBackends: ["zellij"],
     buildMessage: () => ({
       type: "executeTmuxRawCommand",
       subcommand: "copy-mode",
@@ -300,6 +312,7 @@ const commands: TmuxCommand[] = [
     label: "Clear History",
     category: "Native",
     requiresSession: true,
+    unsupportedBackends: ["zellij"],
     buildMessage: () => ({
       type: "executeTmuxRawCommand",
       subcommand: "clear-history",
@@ -310,6 +323,7 @@ const commands: TmuxCommand[] = [
     label: "Detach Client",
     category: "Native",
     requiresSession: true,
+    unsupportedBackends: ["zellij"],
     buildMessage: () => ({
       type: "executeTmuxRawCommand",
       subcommand: "detach-client",
@@ -320,6 +334,7 @@ const commands: TmuxCommand[] = [
     label: "Move Window",
     category: "Native",
     requiresSession: true,
+    unsupportedBackends: ["zellij"],
     buildMessage: () => ({
       type: "executeTmuxRawCommand",
       subcommand: "move-window",
@@ -330,6 +345,7 @@ const commands: TmuxCommand[] = [
     label: "Move Pane",
     category: "Native",
     requiresSession: true,
+    unsupportedBackends: ["zellij"],
     buildMessage: () => ({
       type: "executeTmuxRawCommand",
       subcommand: "move-pane",
@@ -340,6 +356,7 @@ const commands: TmuxCommand[] = [
     label: "Respawn Pane",
     category: "Native",
     requiresSession: true,
+    unsupportedBackends: ["zellij"],
     buildMessage: () => ({
       type: "executeTmuxRawCommand",
       subcommand: "respawn-pane",
@@ -350,6 +367,7 @@ const commands: TmuxCommand[] = [
     label: "Choose Tree",
     category: "Native",
     requiresSession: true,
+    unsupportedBackends: ["zellij"],
     buildMessage: () => ({
       type: "executeTmuxRawCommand",
       subcommand: "choose-tree",
@@ -359,11 +377,27 @@ const commands: TmuxCommand[] = [
 
 function getFilteredCommands(): TmuxCommand[] {
   const q = query.toLowerCase();
-  return commands.filter(
-    (cmd) =>
-      cmd.label.toLowerCase().includes(q) ||
-      cmd.category.toLowerCase().includes(q),
-  );
+  return commands.filter((cmd) => {
+    if (cmd.unsupportedBackends?.includes(activeBackend)) {
+      return false;
+    }
+    return (
+      getCommandLabel(cmd).toLowerCase().includes(q) ||
+      getCommandCategory(cmd).toLowerCase().includes(q)
+    );
+  });
+}
+
+function getCommandLabel(cmd: TmuxCommand): string {
+  return activeBackend === "zellij"
+    ? cmd.label.replace(/Window/g, "Tab")
+    : cmd.label;
+}
+
+function getCommandCategory(cmd: TmuxCommand): string {
+  return activeBackend === "zellij" && cmd.category === "Window"
+    ? "Tab"
+    : cmd.category;
 }
 
 function renderList(): void {
@@ -385,15 +419,19 @@ function renderList(): void {
       const disabledClass = isDisabled ? " disabled" : "";
 
       return `<div class="tmux-cmd-item${focusedClass}${disabledClass}" data-cmd-index="${idx}">
-      <span class="tmux-cmd-category">${escapeHtml(cmd.category)}</span>
-      <span class="tmux-cmd-label">${escapeHtml(cmd.label)}</span>
+      <span class="tmux-cmd-category">${escapeHtml(getCommandCategory(cmd))}</span>
+      <span class="tmux-cmd-label">${escapeHtml(getCommandLabel(cmd))}</span>
     </div>`;
     })
     .join("");
 }
 
-export function show(sessionId: string | null): void {
+export function show(
+  sessionId: string | null,
+  backend: TerminalBackendType = "tmux",
+): void {
   activeSessionId = sessionId;
+  activeBackend = backend;
   visible = true;
   query = "";
   focusedIndex = 0;
