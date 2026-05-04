@@ -39,8 +39,9 @@ describe("TerminalDashboardProvider", () => {
    * Flushes the promise queue to ensure all async operations are completed.
    */
   async function flushPromises(): Promise<void> {
-    await Promise.resolve();
-    await Promise.resolve();
+    for (let i = 0; i < 6; i += 1) {
+      await Promise.resolve();
+    }
   }
 
   /**
@@ -51,6 +52,9 @@ describe("TerminalDashboardProvider", () => {
     listPanes?: ReturnType<typeof vi.fn>;
     listWindows?: ReturnType<typeof vi.fn>;
     listWindowPaneGeometry?: ReturnType<typeof vi.fn>;
+    zellijDiscoverSessions?: ReturnType<typeof vi.fn>;
+    zellijListPanes?: ReturnType<typeof vi.fn>;
+    zellijListTabs?: ReturnType<typeof vi.fn>;
     instanceStore?: {
       getAll: ReturnType<typeof vi.fn>;
       getActive?: ReturnType<typeof vi.fn>;
@@ -61,6 +65,8 @@ describe("TerminalDashboardProvider", () => {
     terminalProvider?: {
       showAiToolSelector: ReturnType<typeof vi.fn>;
       launchAiTool: ReturnType<typeof vi.fn>;
+      switchToZellijSession?: ReturnType<typeof vi.fn>;
+      killTmuxSession?: ReturnType<typeof vi.fn>;
     };
     logger?: {
       debug: ReturnType<typeof vi.fn>;
@@ -76,6 +82,9 @@ describe("TerminalDashboardProvider", () => {
       options?.listWindowPaneGeometry ?? vi.fn().mockResolvedValue([]);
     const instanceStore = options?.instanceStore;
     const terminalProvider = options?.terminalProvider;
+    const zellijDiscoverSessions = options?.zellijDiscoverSessions;
+    const zellijListPanes = options?.zellijListPanes ?? vi.fn().mockResolvedValue([]);
+    const zellijListTabs = options?.zellijListTabs ?? vi.fn().mockResolvedValue([]);
     const logger =
       options?.logger ??
       ({
@@ -104,23 +113,43 @@ describe("TerminalDashboardProvider", () => {
       listPaneDtos: vi.fn().mockResolvedValue([]),
       onPaneChanged: onPaneChangedEvent.event,
     } as unknown as TmuxSessionManager;
+    const zellijSessionManager = zellijDiscoverSessions
+      ? {
+          discoverSessions: zellijDiscoverSessions,
+          listPanes: zellijListPanes,
+          listTabs: zellijListTabs,
+          createTab: vi.fn().mockResolvedValue(undefined),
+          nextTab: vi.fn().mockResolvedValue(undefined),
+          prevTab: vi.fn().mockResolvedValue(undefined),
+          killTab: vi.fn().mockResolvedValue(undefined),
+          selectTab: vi.fn().mockResolvedValue(undefined),
+          selectPane: vi.fn().mockResolvedValue(undefined),
+          splitPane: vi.fn().mockResolvedValue("terminal_8"),
+          killPane: vi.fn().mockResolvedValue(undefined),
+          resizePane: vi.fn().mockResolvedValue(undefined),
+        }
+      : undefined;
 
     return {
       discoverSessions,
       listPanes,
       listWindows,
       listWindowPaneGeometry,
+      zellijListPanes,
+      zellijListTabs,
       logger,
       instanceStore,
       terminalProvider,
       onPaneChangedEvent,
       tmuxSessionManager,
+      zellijSessionManager,
       provider: new TerminalDashboardProvider(
         context as never,
         tmuxSessionManager,
         logger as never,
         instanceStore as never,
         terminalProvider as never,
+        zellijSessionManager as never,
       ),
     };
   }
@@ -237,6 +266,79 @@ describe("TerminalDashboardProvider", () => {
             label: "Codex",
           }),
         ]),
+      }),
+    );
+  });
+
+  it("posts zellij sessions with tabs mapped to dashboard windows", async () => {
+    const { provider, zellijListPanes, zellijListTabs } = createProvider({
+      discoverSessions: vi.fn().mockResolvedValue([]),
+      zellijDiscoverSessions: vi.fn().mockResolvedValue([
+        {
+          id: "repo-a",
+          name: "repo-a",
+          workspace: "repo-a",
+          isActive: true,
+        },
+        {
+          id: "repo-b",
+          name: "repo-b",
+          workspace: "repo-b",
+          isActive: false,
+        },
+      ]),
+      zellijListTabs: vi.fn().mockResolvedValue([
+        { index: 1, name: "editor", isActive: true },
+        { index: 2, name: "tests", isActive: false },
+      ]),
+      zellijListPanes: vi.fn().mockResolvedValue([
+        {
+          id: "terminal_1",
+          title: "shell",
+          isFocused: true,
+          isFloating: false,
+        },
+      ]),
+    });
+
+    const { view } = resolveProvider(provider);
+    await flushPromises();
+
+    expect(zellijListTabs).toHaveBeenCalledTimes(1);
+    expect(zellijListPanes).toHaveBeenCalledTimes(1);
+    expect(view.webview.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessions: [
+          {
+            id: "repo-a",
+            name: "Zellij: repo-a",
+            workspace: "repo-a",
+            isActive: true,
+            paneCount: 1,
+          },
+        ],
+        panes: {
+          "repo-a": [
+            expect.objectContaining({
+              paneId: "terminal_1",
+              isActive: true,
+              windowId: "zellij-tab-1",
+            }),
+          ],
+        },
+        windows: {
+          "repo-a": [
+            expect.objectContaining({
+              windowId: "zellij-tab-1",
+              name: "Tab: editor",
+              panes: [expect.objectContaining({ paneId: "terminal_1" })],
+            }),
+            expect.objectContaining({
+              windowId: "zellij-tab-2",
+              name: "Tab: tests",
+            }),
+          ],
+        },
       }),
     );
   });
@@ -598,7 +700,7 @@ describe("TerminalDashboardProvider", () => {
     visibilityHandler();
     await flushPromises();
 
-    expect(vi.mocked(view.webview.postMessage)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(view.webview.postMessage)).toHaveBeenCalledTimes(4);
     expect(discoverSessions).toHaveBeenCalledTimes(3);
   });
 
@@ -890,6 +992,86 @@ describe("TerminalDashboardProvider", () => {
       true,
       undefined,
     );
+  });
+
+  it("routes zellij tab and pane actions through the zellij manager", async () => {
+    const terminalProvider = {
+      showAiToolSelector: vi.fn(),
+      launchAiTool: vi.fn().mockResolvedValue(undefined),
+      switchToZellijSession: vi.fn().mockResolvedValue(undefined),
+      killTmuxSession: vi.fn().mockResolvedValue(undefined),
+    };
+    const { provider, zellijSessionManager } = createProvider({
+      discoverSessions: vi.fn().mockResolvedValue([]),
+      zellijDiscoverSessions: vi.fn().mockResolvedValue([
+        { id: "repo-a", name: "repo-a", workspace: "repo-a", isActive: true },
+      ]),
+      zellijListPanes: vi.fn().mockResolvedValue([
+        {
+          id: "terminal_1",
+          title: "active",
+          isFocused: true,
+          isFloating: false,
+        },
+      ]),
+      zellijListTabs: vi.fn().mockResolvedValue([
+        { index: 1, name: "main", isActive: true },
+      ]),
+      terminalProvider,
+    });
+
+    const { messageHandler } = resolveProvider(provider);
+    await flushPromises();
+
+    await messageHandler({ action: "activate", sessionId: "repo-a" });
+    await messageHandler({ action: "createWindow", sessionId: "repo-a" });
+    await messageHandler({ action: "nextWindow", sessionId: "repo-a" });
+    await messageHandler({ action: "prevWindow", sessionId: "repo-a" });
+    await messageHandler({
+      action: "selectWindow",
+      sessionId: "repo-a",
+      windowId: "zellij-tab-2",
+    });
+    await messageHandler({ action: "killWindow", sessionId: "repo-a" });
+    await messageHandler({
+      action: "switchPane",
+      sessionId: "repo-a",
+      paneId: "terminal_1",
+    });
+    await messageHandler({
+      action: "splitPaneWithCommand",
+      sessionId: "repo-a",
+      paneId: "terminal_1",
+      direction: "h",
+      command: "npm test",
+    });
+    await messageHandler({
+      action: "resizePane",
+      sessionId: "repo-a",
+      paneId: "terminal_1",
+      direction: "L",
+      amount: 5,
+    });
+    await messageHandler({
+      action: "killPane",
+      sessionId: "repo-a",
+      paneId: "terminal_1",
+    });
+
+    expect(terminalProvider.switchToZellijSession).toHaveBeenCalledWith("repo-a");
+    expect(zellijSessionManager?.createTab).toHaveBeenCalledWith({
+      workingDirectory: "/workspaces/repo-a",
+    });
+    expect(zellijSessionManager?.nextTab).toHaveBeenCalled();
+    expect(zellijSessionManager?.prevTab).toHaveBeenCalled();
+    expect(zellijSessionManager?.selectTab).toHaveBeenCalledWith(2);
+    expect(zellijSessionManager?.killTab).toHaveBeenCalled();
+    expect(zellijSessionManager?.selectPane).toHaveBeenCalledWith("terminal_1");
+    expect(zellijSessionManager?.splitPane).toHaveBeenCalledWith("h", {
+      command: "npm test",
+    });
+    expect(zellijSessionManager?.resizePane).toHaveBeenCalledWith("left", 5);
+    expect(zellijSessionManager?.killPane).toHaveBeenCalled();
   });
 
   it("uses the active pane target when opening the AI selector and falls back gracefully on pane lookup errors", async () => {

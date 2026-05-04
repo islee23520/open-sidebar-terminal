@@ -233,6 +233,7 @@ export class ExtensionLifecycle {
           logger,
           this.instanceStore,
           this.tuiProvider,
+          this.zellijSessionManager,
         );
 
         context.subscriptions.push(

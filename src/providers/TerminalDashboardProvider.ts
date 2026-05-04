@@ -3,6 +3,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 import type { ILogger } from "../services/ILogger";
 import { TmuxSessionManager } from "../services/TmuxSessionManager";
+import { ZellijSessionManager } from "../services/ZellijSessionManager";
 import { InstanceStore } from "../services/InstanceStore";
 import type { TerminalProvider } from "./TerminalProvider";
 import {
@@ -15,6 +16,16 @@ import {
   AiToolConfig,
   resolveAiToolConfigs,
 } from "../types";
+
+type DashboardBackend = "tmux" | "zellij";
+
+interface DashboardSessionSource {
+  id: string;
+  name: string;
+  workspace: string;
+  isActive: boolean;
+  backend: DashboardBackend;
+}
 
 /**
  * Terminal Managers provider. Webview-based tmux session manager with inline pane controls (split, switch, resize, swap, kill). Filters sessions to current workspace.
@@ -39,6 +50,7 @@ export class TerminalDashboardProvider
     private readonly logger?: ILogger,
     private readonly instanceStore?: InstanceStore,
     private readonly terminalProvider?: TerminalProvider,
+    private readonly zellijSessionManager?: ZellijSessionManager,
   ) {}
 
   /**
@@ -132,7 +144,7 @@ export class TerminalDashboardProvider
     const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
     try {
-      const sessions = await this.tmuxSessionManager.discoverSessions();
+      const sessions = await this.discoverDashboardSessions();
       const workspaceName = workspacePath
         ? path.basename(workspacePath)
         : undefined;
@@ -142,7 +154,7 @@ export class TerminalDashboardProvider
       );
       for (const s of sessions) {
         this.logger?.debug(
-          `[TerminalDashboard]   session: id=${s.id}, workspace=${s.workspace}, isActive=${s.isActive}`,
+          `[TerminalDashboard]   session: id=${s.id}, workspace=${s.workspace}, isActive=${s.isActive}, backend=${s.backend}`,
         );
       }
 
@@ -166,26 +178,35 @@ export class TerminalDashboardProvider
       );
       for (const session of filtered) {
         try {
-          const windows = await this.tmuxSessionManager.listWindows(session.id);
-          const windowPanes = await Promise.all(
-            windows.map((w) =>
-              this.tmuxSessionManager.listWindowPaneGeometry(
-                session.id,
-                w.windowId,
-                tools,
+          if (session.backend === "zellij") {
+            const { panes, windows } = await this.buildZellijWindowData();
+            panesMap[session.id] = panes;
+            windowsMap[session.id] = windows;
+          } else {
+            const windows = await this.tmuxSessionManager.listWindows(session.id);
+            const windowPanes = await Promise.all(
+              windows.map((w) =>
+                this.tmuxSessionManager.listWindowPaneGeometry(
+                  session.id,
+                  w.windowId,
+                  tools,
+                ),
               ),
-            ),
+            );
+            const allPanes = windowPanes.flat();
+            panesMap[session.id] = allPanes;
+            windowsMap[session.id] = windows.map((w, i) => ({
+              windowId: w.windowId,
+              index: w.index,
+              name: w.name,
+              isActive: w.isActive,
+              panes: windowPanes[i] ?? [],
+            }));
+          }
+        } catch (error) {
+          this.logger?.warn(
+            `[TerminalDashboard] Failed to load ${session.backend} panes for ${session.id}: ${error instanceof Error ? error.message : String(error)}`,
           );
-          const allPanes = windowPanes.flat();
-          panesMap[session.id] = allPanes;
-          windowsMap[session.id] = windows.map((w, i) => ({
-            windowId: w.windowId,
-            index: w.index,
-            name: w.name,
-            isActive: w.isActive,
-            panes: windowPanes[i] ?? [],
-          }));
-        } catch {
           panesMap[session.id] = [];
           windowsMap[session.id] = [];
         }
@@ -193,7 +214,7 @@ export class TerminalDashboardProvider
 
       const payload: TmuxDashboardSessionDto[] = filtered.map((session) => ({
         id: session.id,
-        name: session.name,
+        name: session.backend === "zellij" ? `Zellij: ${session.name}` : session.name,
         workspace: session.workspace,
         isActive: session.isActive,
         paneCount: panesMap[session.id]?.length ?? 0,
@@ -241,6 +262,116 @@ export class TerminalDashboardProvider
     }
   }
 
+  private async discoverDashboardSessions(): Promise<DashboardSessionSource[]> {
+    const sessions: DashboardSessionSource[] = [];
+
+    try {
+      const tmuxSessions = await this.tmuxSessionManager.discoverSessions();
+      sessions.push(
+        ...tmuxSessions.map((session) => ({
+          ...session,
+          backend: "tmux" as const,
+        })),
+      );
+    } catch (error) {
+      this.logger?.warn(
+        `[TerminalDashboard] Failed to discover tmux sessions: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      if (!this.zellijSessionManager) {
+        throw error;
+      }
+    }
+
+    if (!this.zellijSessionManager) {
+      return sessions;
+    }
+
+    try {
+      const zellijSessions = await this.zellijSessionManager.discoverSessions();
+      sessions.push(
+        ...zellijSessions.map((session) => ({
+          ...session,
+          backend: "zellij" as const,
+        })),
+      );
+    } catch (error) {
+      this.logger?.warn(
+        `[TerminalDashboard] Failed to discover zellij sessions: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    return sessions;
+  }
+
+  private async buildZellijWindowData(): Promise<{
+    panes: TmuxDashboardPaneDto[];
+    windows: TmuxDashboardWindowDto[];
+  }> {
+    if (!this.zellijSessionManager) {
+      return { panes: [], windows: [] };
+    }
+
+    const [tabs, zellijPanes] = await Promise.all([
+      this.zellijSessionManager.listTabs(),
+      this.zellijSessionManager.listPanes(),
+    ]);
+    const activeTab = tabs.find((tab) => tab.isActive) ?? tabs[0];
+    const activeWindowId = activeTab ? this.zellijTabWindowId(activeTab.index) : "zellij-tab-1";
+    const panes: TmuxDashboardPaneDto[] = zellijPanes.map((pane, index) => ({
+      paneId: pane.id,
+      index,
+      title: pane.title,
+      isActive: pane.isFocused,
+      windowId: activeWindowId,
+    }));
+    const windows = tabs.map((tab) => ({
+      windowId: this.zellijTabWindowId(tab.index),
+      index: tab.index,
+      name: `Tab: ${tab.name}`,
+      isActive: tab.isActive,
+      panes: tab.index === activeTab?.index ? panes : [],
+    }));
+
+    return {
+      panes,
+      windows: windows.length > 0 ? windows : [{
+        windowId: activeWindowId,
+        index: 1,
+        name: "Tab 1",
+        isActive: true,
+        panes,
+      }],
+    };
+  }
+
+  private zellijTabWindowId(index: number): string {
+    return `zellij-tab-${index}`;
+  }
+
+  private parseZellijTabIndex(windowId: string | undefined): number {
+    const match = windowId?.match(/^(?:zellij-tab-)?(\d+)$/);
+    return match?.[1] ? Number(match[1]) : 1;
+  }
+
+  private async getSessionBackend(sessionId: string): Promise<DashboardBackend> {
+    if (!this.zellijSessionManager) {
+      return "tmux";
+    }
+
+    try {
+      const zellijSessions = await this.zellijSessionManager.discoverSessions();
+      if (zellijSessions.some((session) => session.id === sessionId)) {
+        return "zellij";
+      }
+    } catch (error) {
+      this.logger?.warn(
+        `[TerminalDashboard] Failed to resolve zellij session backend: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    return "tmux";
+  }
+
   /**
    * Handles incoming messages from the webview and executes corresponding commands or actions.
    * @param message The message received from the webview
@@ -261,10 +392,14 @@ export class TerminalDashboardProvider
         await this.postSessionsToWebview();
         return;
       case "activate":
-        await vscode.commands.executeCommand(
-          "opencodeTui.switchTmuxSession",
-          message.sessionId,
-        );
+        if ((await this.getSessionBackend(message.sessionId)) === "zellij") {
+          await this.terminalProvider?.switchToZellijSession(message.sessionId);
+        } else {
+          await vscode.commands.executeCommand(
+            "opencodeTui.switchTmuxSession",
+            message.sessionId,
+          );
+        }
         await this.postSessionsToWebview();
         return;
       case "create":
@@ -321,16 +456,24 @@ export class TerminalDashboardProvider
         // Get the active pane to use as the default target for AI tool launch
         let targetPaneId: string | undefined;
         try {
-          const panes = await this.tmuxSessionManager.listPanes(
-            message.sessionId,
-            { activeWindowOnly: true },
-          );
-          const activePane = panes.find((pane) => pane.isActive);
-          if (activePane) {
-            targetPaneId = activePane.paneId;
+          if ((await this.getSessionBackend(message.sessionId)) === "zellij") {
+            const panes = await this.zellijSessionManager?.listPanes();
+            const activePane = panes?.find((pane) => pane.isFocused);
+            targetPaneId = activePane?.id;
+          } else {
+            const panes = await this.tmuxSessionManager.listPanes(
+              message.sessionId,
+              { activeWindowOnly: true },
+            );
+            const activePane = panes.find((pane) => pane.isActive);
+            if (activePane) {
+              targetPaneId = activePane.paneId;
+            }
           }
-        } catch {
-          // If we can't get panes, continue without a specific target
+        } catch (error) {
+          this.logger?.debug(
+            `[TerminalDashboard] Unable to resolve active pane for AI selector: ${error instanceof Error ? error.message : String(error)}`,
+          );
         }
         await this.showAiToolSelector(
           message.sessionId,
@@ -345,102 +488,172 @@ export class TerminalDashboardProvider
         return;
       case "createWindow":
         {
-          const panes = await this.tmuxSessionManager.listPanes(
-            message.sessionId,
-            {
-              activeWindowOnly: true,
-            },
-          );
-          const activePane = panes.find((pane) => pane.isActive) ?? panes[0];
-          const workspacePath =
-            vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-          await this.tmuxSessionManager.createWindow(
-            message.sessionId,
-            activePane?.currentPath ?? workspacePath,
-          );
+          const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+          if ((await this.getSessionBackend(message.sessionId)) === "zellij") {
+            await this.zellijSessionManager?.createTab({
+              workingDirectory: workspacePath,
+            });
+          } else {
+            const panes = await this.tmuxSessionManager.listPanes(
+              message.sessionId,
+              {
+                activeWindowOnly: true,
+              },
+            );
+            const activePane = panes.find((pane) => pane.isActive) ?? panes[0];
+            await this.tmuxSessionManager.createWindow(
+              message.sessionId,
+              activePane?.currentPath ?? workspacePath,
+            );
+          }
           await this.postSessionsToWebview();
         }
         return;
       case "nextWindow":
-        await this.tmuxSessionManager.nextWindow(message.sessionId);
+        if ((await this.getSessionBackend(message.sessionId)) === "zellij") {
+          await this.zellijSessionManager?.nextTab();
+        } else {
+          await this.tmuxSessionManager.nextWindow(message.sessionId);
+        }
         await this.postSessionsToWebview();
         return;
       case "prevWindow":
-        await this.tmuxSessionManager.prevWindow(message.sessionId);
+        if ((await this.getSessionBackend(message.sessionId)) === "zellij") {
+          await this.zellijSessionManager?.prevTab();
+        } else {
+          await this.tmuxSessionManager.prevWindow(message.sessionId);
+        }
         await this.postSessionsToWebview();
         return;
       case "killWindow":
-        await this.tmuxSessionManager.killWindow(message.windowId);
+        if ((await this.getSessionBackend(message.sessionId)) === "zellij") {
+          await this.zellijSessionManager?.killTab();
+        } else {
+          await this.tmuxSessionManager.killWindow(message.windowId);
+        }
         await this.postSessionsToWebview();
         return;
       case "selectWindow":
         this.logger?.debug(
           `[TerminalDashboard] selectWindow: sessionId=${message.sessionId}, windowId=${message.windowId}`,
         );
-        await this.tmuxSessionManager.selectWindow(message.windowId);
+        if ((await this.getSessionBackend(message.sessionId)) === "zellij") {
+          await this.zellijSessionManager?.selectTab(
+            this.parseZellijTabIndex(message.windowId),
+          );
+        } else {
+          await this.tmuxSessionManager.selectWindow(message.windowId);
+        }
         await this.postSessionsToWebview();
         return;
       case "switchPane":
-        await this.tmuxSessionManager.selectPane(
-          message.paneId,
-          message.windowId,
-        );
+        if ((await this.getSessionBackend(message.sessionId)) === "zellij") {
+          await this.zellijSessionManager?.selectPane(message.paneId);
+        } else {
+          await this.tmuxSessionManager.selectPane(
+            message.paneId,
+            message.windowId,
+          );
+        }
         await this.postSessionsToWebview();
         return;
       case "splitPane":
         {
-          const panes = await this.tmuxSessionManager.listPanes(
-            message.sessionId,
-          );
-          const activePane =
-            panes.find((pane) => pane.paneId === message.paneId) ??
-            panes.find((pane) => pane.isActive) ??
-            panes[0];
-          const targetPaneId =
-            activePane?.paneId ?? message.paneId ?? message.sessionId;
-          await this.tmuxSessionManager.splitPane(
-            targetPaneId,
-            message.direction,
-            {
-              workingDirectory: activePane?.currentPath,
-            },
-          );
+          if ((await this.getSessionBackend(message.sessionId)) === "zellij") {
+            if (message.paneId) {
+              await this.zellijSessionManager?.selectPane(message.paneId);
+            }
+            await this.zellijSessionManager?.splitPane(message.direction);
+          } else {
+            const panes = await this.tmuxSessionManager.listPanes(
+              message.sessionId,
+            );
+            const activePane =
+              panes.find((pane) => pane.paneId === message.paneId) ??
+              panes.find((pane) => pane.isActive) ??
+              panes[0];
+            const targetPaneId =
+              activePane?.paneId ?? message.paneId ?? message.sessionId;
+            await this.tmuxSessionManager.splitPane(
+              targetPaneId,
+              message.direction,
+              {
+                workingDirectory: activePane?.currentPath,
+              },
+            );
+          }
           await this.postSessionsToWebview();
         }
         return;
       case "splitPaneWithCommand":
         {
-          const panes = await this.tmuxSessionManager.listPanes(
-            message.sessionId,
-          );
-          const activePane =
-            panes.find((pane) => pane.paneId === message.paneId) ??
-            panes.find((pane) => pane.isActive) ??
-            panes[0];
-          await this.tmuxSessionManager.splitPane(
-            activePane?.paneId ?? message.paneId ?? message.sessionId,
-            message.direction,
-            {
+          if ((await this.getSessionBackend(message.sessionId)) === "zellij") {
+            if (message.paneId) {
+              await this.zellijSessionManager?.selectPane(message.paneId);
+            }
+            await this.zellijSessionManager?.splitPane(message.direction, {
               command: message.command,
-              workingDirectory: activePane?.currentPath,
-            },
-          );
+            });
+          } else {
+            const panes = await this.tmuxSessionManager.listPanes(
+              message.sessionId,
+            );
+            const activePane =
+              panes.find((pane) => pane.paneId === message.paneId) ??
+              panes.find((pane) => pane.isActive) ??
+              panes[0];
+            await this.tmuxSessionManager.splitPane(
+              activePane?.paneId ?? message.paneId ?? message.sessionId,
+              message.direction,
+              {
+                command: message.command,
+                workingDirectory: activePane?.currentPath,
+              },
+            );
+          }
           await this.postSessionsToWebview();
         }
         return;
       case "killPane":
-        await this.tmuxSessionManager.killPane(message.paneId);
+        if ((await this.getSessionBackend(message.sessionId)) === "zellij") {
+          if (message.paneId) {
+            await this.zellijSessionManager?.selectPane(message.paneId);
+          }
+          await this.zellijSessionManager?.killPane();
+        } else {
+          await this.tmuxSessionManager.killPane(message.paneId);
+        }
         await this.postSessionsToWebview();
         return;
       case "resizePane":
-        await this.tmuxSessionManager.resizePane(
-          message.paneId,
-          message.direction as "L" | "R" | "U" | "D",
-          message.amount,
-        );
+        if ((await this.getSessionBackend(message.sessionId)) === "zellij") {
+          const directionMap = {
+            L: "left",
+            R: "right",
+            U: "up",
+            D: "down",
+          } as const;
+          if (message.paneId) {
+            await this.zellijSessionManager?.selectPane(message.paneId);
+          }
+          await this.zellijSessionManager?.resizePane(
+            directionMap[message.direction as "L" | "R" | "U" | "D"],
+            message.amount,
+          );
+        } else {
+          await this.tmuxSessionManager.resizePane(
+            message.paneId,
+            message.direction as "L" | "R" | "U" | "D",
+            message.amount,
+          );
+        }
         await this.postSessionsToWebview();
         return;
       case "swapPane":
+        if ((await this.getSessionBackend(message.sessionId)) === "zellij") {
+          await this.postSessionsToWebview();
+          return;
+        }
         await this.tmuxSessionManager.swapPanes(
           message.sourcePaneId,
           message.targetPaneId,
@@ -464,29 +677,37 @@ export class TerminalDashboardProvider
         return;
       }
       case "killSession": {
-        const sessionsBefore = await this.tmuxSessionManager.discoverSessions();
+        const sessionBackend = await this.getSessionBackend(message.sessionId);
+        const sessionsBefore = await this.discoverDashboardSessions();
         const killedSession = sessionsBefore.find(
-          (s: TmuxDashboardSessionDto) => s.id === message.sessionId,
+          (s) => s.id === message.sessionId && s.backend === sessionBackend,
         );
         const wasActive = killedSession?.isActive ?? false;
         const killedWorkspace = killedSession?.workspace;
 
-        await vscode.commands.executeCommand(
-          "opencodeTui.killTmuxSession",
-          message.sessionId,
-        );
+        if (sessionBackend === "zellij" && this.terminalProvider) {
+          await this.terminalProvider.killTmuxSession(message.sessionId);
+        } else {
+          await vscode.commands.executeCommand(
+            "opencodeTui.killTmuxSession",
+            message.sessionId,
+          );
+        }
 
         if (wasActive && killedWorkspace) {
-          const sessionsAfter =
-            await this.tmuxSessionManager.discoverSessions();
+          const sessionsAfter = await this.discoverDashboardSessions();
           const nextSession = sessionsAfter.find(
-            (s: TmuxDashboardSessionDto) => s.workspace === killedWorkspace,
+            (s) => s.workspace === killedWorkspace && s.backend === sessionBackend,
           );
           if (nextSession) {
-            await vscode.commands.executeCommand(
-              "opencodeTui.switchTmuxSession",
-              nextSession.id,
-            );
+            if (sessionBackend === "zellij") {
+              await this.terminalProvider?.switchToZellijSession(nextSession.id);
+            } else {
+              await vscode.commands.executeCommand(
+                "opencodeTui.switchTmuxSession",
+                nextSession.id,
+              );
+            }
           }
         }
         await this.postSessionsToWebview();
@@ -722,7 +943,7 @@ export class TerminalDashboardProvider
 
     this.subscriptions.push(
       webview.onDidReceiveMessage((message) => {
-        void this.handleWebviewMessage(message as TmuxDashboardActionMessage);
+        return this.handleWebviewMessage(message as TmuxDashboardActionMessage);
       }),
     );
 

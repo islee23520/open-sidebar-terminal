@@ -245,7 +245,10 @@ document.addEventListener("click", (event) => {
         ? lastPayload.sessions
         : [];
       const activeSession = sessions.find((s) => s.isActive);
-      TmuxCmd.show(activeSession?.id ?? null);
+      const activeBackend = activeSession?.name.startsWith("Zellij: ")
+        ? "zellij"
+        : "tmux";
+      TmuxCmd.show(activeSession?.id ?? null, activeBackend);
     }
     return;
   }
