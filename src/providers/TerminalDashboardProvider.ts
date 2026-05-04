@@ -354,21 +354,21 @@ export class TerminalDashboardProvider
   }
 
   private async getSessionBackend(sessionId: string): Promise<DashboardBackend> {
-    if (!this.zellijSessionManager) {
-      return "tmux";
-    }
-
-    try {
-      const zellijSessions = await this.zellijSessionManager.discoverSessions();
-      if (zellijSessions.some((session) => session.id === sessionId)) {
-        return "zellij";
+    if (this.zellijSessionManager) {
+      try {
+        const zellijSessions = await this.zellijSessionManager.discoverSessions();
+        if (zellijSessions.some((session) => session.id === sessionId)) {
+          return "zellij";
+        }
+      } catch (error) {
+        this.logger?.warn(
+          `[TerminalDashboard] Failed to resolve zellij session backend: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
-    } catch (error) {
-      this.logger?.warn(
-        `[TerminalDashboard] Failed to resolve zellij session backend: ${error instanceof Error ? error.message : String(error)}`,
-      );
     }
 
+    // Default to tmux (the tmuxSessionManager is always provided via constructor).
+    // If the session was not found in zellij, it is treated as a tmux session.
     return "tmux";
   }
 
@@ -383,6 +383,7 @@ export class TerminalDashboardProvider
       return;
     }
 
+    try {
     switch (message.action) {
       case "refresh":
         await this.postSessionsToWebview();
@@ -715,6 +716,12 @@ export class TerminalDashboardProvider
       }
       default:
         return;
+    }
+    } catch (error) {
+      this.logger?.error(
+        `[TerminalDashboard] Error handling \"${message.action}\" action: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      await this.postSessionsToWebview();
     }
   }
 

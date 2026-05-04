@@ -162,6 +162,9 @@ export class SessionRuntime {
         await this.switchToTmuxSession(sessionId);
         return;
       }
+      void vscode.window.showWarningMessage(
+        "Tmux session could not be created. Falling back to native shell.",
+      );
       await this.switchToNativeShell();
       return;
     }
@@ -170,6 +173,9 @@ export class SessionRuntime {
       await this.switchToZellijSession(sessionId);
       return;
     }
+    void vscode.window.showWarningMessage(
+      "Zellij session could not be created. Falling back to native shell.",
+    );
     await this.switchToNativeShell();
   }
 

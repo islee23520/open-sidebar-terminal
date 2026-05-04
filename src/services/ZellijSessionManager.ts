@@ -52,7 +52,7 @@ export interface ZellijTab {
 
 export class ZellijSessionManager {
   public constructor(
-    _logger?: ILogger,
+    private readonly logger?: ILogger,
     private readonly runExecFile: ExecFileLike = (
       file,
       args,
@@ -348,15 +348,17 @@ export class ZellijSessionManager {
         return undefined;
       }
       return { tabName, paneId: focusedPane.id };
-    } catch {
+    } catch (error) {
+      this.logger?.debug(
+        `[ZellijSessionManager] getActiveFocus failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return undefined;
     }
   }
-
   /** Dump screen content of focused pane */
   public async dumpScreen(): Promise<string> {
     try {
-      return await this.runZellij(["action", "dump-screen", "/dev/stdout"]);
+      return await this.runZellij(["action", "dump-screen"]);
     } catch (error) {
       if (this.isZellijUnavailable(error)) {
         throw new ZellijUnavailableError();
@@ -536,11 +538,13 @@ export class ZellijSessionManager {
     }
     try {
       return JSON.parse(trimmed);
-    } catch {
+    } catch (error) {
+      this.logger?.debug(
+        `[ZellijSessionManager] tryParseJson failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return undefined;
     }
   }
-
   private isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }

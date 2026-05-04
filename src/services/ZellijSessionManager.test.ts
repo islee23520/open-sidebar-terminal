@@ -312,7 +312,6 @@ describe("ZellijSessionManager", () => {
     expect(execCalls[0]?.args).toEqual([
       "action",
       "dump-screen",
-      "/dev/stdout",
     ]);
   });
 
