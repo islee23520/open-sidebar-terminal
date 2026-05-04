@@ -131,6 +131,12 @@ describe("SessionRuntime - Workspace Session Resolution", () => {
       discoverSessions: vi.fn(),
       ensureSession: vi.fn(),
       createSession: vi.fn(),
+      killSession: vi.fn(),
+      switchSession: vi.fn(),
+      zoomPane: vi.fn(),
+      sendTextToPane: vi.fn(),
+      listPanes: vi.fn(),
+      listTabs: vi.fn(),
       getAttachCommand: vi.fn((sessionName: string) =>
         `zellij attach '${sessionName}'`,
       ),
@@ -247,8 +253,14 @@ describe("SessionRuntime - Workspace Session Resolution", () => {
     return id;
   };
 
+  const setActiveBackend = (backend: TerminalBackendType): void => {
+    (sessionRuntime as unknown as { activeBackend: TerminalBackendType }).activeBackend =
+      backend;
+  };
+
   describe("checkPaneChanges", () => {
     it("falls back to discovered sessions and posts active session metadata", async () => {
+      setActiveBackend("tmux");
       vi.mocked(mockTmuxSessionManager.discoverSessions).mockResolvedValue([
         { id: "fallback-session", isActive: true },
       ] as unknown as Awaited<
@@ -282,6 +294,7 @@ describe("SessionRuntime - Workspace Session Resolution", () => {
     });
 
     it("posts updates when window focus changes", async () => {
+      setActiveBackend("tmux");
       upsertInstance({ tmuxSessionId: "workspace-session" });
       (
         sessionRuntime as unknown as { knownActiveWindowId?: string }
@@ -311,6 +324,7 @@ describe("SessionRuntime - Workspace Session Resolution", () => {
     });
 
     it("silently ignores tmux polling errors", async () => {
+      setActiveBackend("tmux");
       upsertInstance({ tmuxSessionId: "workspace-session" });
       vi.mocked(mockTmuxSessionManager.listPanes).mockRejectedValue(
         new Error("tmux unavailable"),
@@ -322,6 +336,56 @@ describe("SessionRuntime - Workspace Session Resolution", () => {
         ).checkPaneChanges(),
       ).resolves.toBeUndefined();
       expect(postMessageMock).not.toHaveBeenCalled();
+    });
+
+    it("routes zellij polling through panes and tabs", async () => {
+      setActiveBackend("zellij");
+      upsertInstance({ zellijSessionId: "zellij-session" });
+
+      vi.mocked(mockZellijSessionManager.listPanes).mockResolvedValue([
+        { id: "terminal_1", title: "shell", isFocused: true, isFloating: false },
+        { id: "terminal_2", title: "agent", isFocused: false, isFloating: false },
+      ] as Awaited<ReturnType<ZellijSessionManager["listPanes"]>>);
+      vi.mocked(mockZellijSessionManager.listTabs).mockResolvedValue([
+        { index: 1, name: "main", isActive: true },
+      ] as Awaited<ReturnType<ZellijSessionManager["listTabs"]>>);
+
+      await (
+        sessionRuntime as unknown as { checkPaneChanges: () => Promise<void> }
+      ).checkPaneChanges();
+
+      expect(mockZellijSessionManager.listPanes).toHaveBeenCalled();
+      expect(mockZellijSessionManager.listTabs).toHaveBeenCalled();
+      expect(mockTmuxSessionManager.listPanes).not.toHaveBeenCalled();
+      expect(postMessageMock).toHaveBeenCalledWith({
+        type: "activeSession",
+        sessionName: "zellij-session",
+        sessionId: "zellij-session",
+        windowIndex: 1,
+        windowName: "main",
+        canKillPane: true,
+      });
+    });
+
+    it("starts zellij change monitoring with polling only", async () => {
+      setActiveBackend("zellij");
+      vi.mocked(mockZellijSessionManager.listPanes).mockResolvedValue([
+        { id: "terminal_1", title: "shell", isFocused: true, isFloating: false },
+      ] as Awaited<ReturnType<ZellijSessionManager["listPanes"]>>);
+
+      await (
+        sessionRuntime as unknown as {
+          startExternalChangeMonitoring: (sessionId: string) => Promise<void>;
+        }
+      ).startExternalChangeMonitoring("zellij-session");
+
+      expect(mockZellijSessionManager.listPanes).toHaveBeenCalled();
+      expect(mockTmuxSessionManager.listPanes).not.toHaveBeenCalled();
+      expect(mockTmuxSessionManager.onExternalPaneChange).not.toHaveBeenCalled();
+      expect(
+        (sessionRuntime as unknown as { paneMonitorInterval?: unknown })
+          .paneMonitorInterval,
+      ).toBeDefined();
     });
   });
 
@@ -1055,6 +1119,7 @@ describe("SessionRuntime - Workspace Session Resolution", () => {
     });
 
     it("zooms the active pane", async () => {
+      setActiveBackend("tmux");
       upsertInstance({
         tmuxSessionId: "workspace-session",
         workspaceUri: "file:///workspace/project-a",
@@ -1078,7 +1143,18 @@ describe("SessionRuntime - Workspace Session Resolution", () => {
       expect(mockTmuxSessionManager.zoomPane).toHaveBeenCalledWith("%2");
     });
 
+    it("zooms the focused zellij pane without tmux pane lookup", async () => {
+      setActiveBackend("zellij");
+
+      await sessionRuntime.zoomTmuxPane();
+
+      expect(mockZellijSessionManager.zoomPane).toHaveBeenCalled();
+      expect(mockTmuxSessionManager.listPanes).not.toHaveBeenCalled();
+      expect(mockTmuxSessionManager.zoomPane).not.toHaveBeenCalled();
+    });
+
     it("kills tmux sessions and switches to a replacement workspace session when available", async () => {
+      setActiveBackend("tmux");
       upsertInstance({
         tmuxSessionId: "workspace-session",
         workspaceUri: "file:///workspace/project-a",
@@ -1113,6 +1189,7 @@ describe("SessionRuntime - Workspace Session Resolution", () => {
     });
 
     it("falls back to native shell after killing the active tmux session when no replacement exists", async () => {
+      setActiveBackend("tmux");
       upsertInstance({
         tmuxSessionId: "workspace-session",
         workspaceUri: "file:///workspace/project-a",
@@ -1127,10 +1204,35 @@ describe("SessionRuntime - Workspace Session Resolution", () => {
 
       expect(nativeShellSpy).toHaveBeenCalled();
     });
+
+    it("kills zellij sessions through the zellij manager", async () => {
+      setActiveBackend("zellij");
+      upsertInstance({ zellijSessionId: "zellij-session" });
+      (sessionRuntime as unknown as { isStarted: boolean }).isStarted = true;
+
+      const nativeShellSpy = vi
+        .spyOn(sessionRuntime, "switchToNativeShell")
+        .mockResolvedValue();
+
+      await sessionRuntime.killTmuxSession("zellij-session");
+
+      expect(mockZellijSessionManager.killSession).toHaveBeenCalledWith(
+        "zellij-session",
+      );
+      expect(mockTmuxSessionManager.killSession).not.toHaveBeenCalled();
+      expect(
+        instanceStore.get("default")?.runtime.zellijSessionId,
+      ).toBeUndefined();
+      expect(mockPortManager.releaseTerminalPorts).toHaveBeenCalledWith(
+        "default",
+      );
+      expect(nativeShellSpy).toHaveBeenCalled();
+    });
   });
 
   describe("pane routing and formatting helpers", () => {
     it("routes dropped text into the pane under the drop coordinates", async () => {
+      setActiveBackend("tmux");
       upsertInstance({
         tmuxSessionId: "workspace-session",
         workspaceUri: "file:///workspace/project-a",
@@ -1178,6 +1280,7 @@ describe("SessionRuntime - Workspace Session Resolution", () => {
     });
 
     it("returns false when dropped text does not intersect any pane", async () => {
+      setActiveBackend("tmux");
       upsertInstance({ tmuxSessionId: "workspace-session" });
       vi.mocked(
         mockTmuxSessionManager.listVisiblePaneGeometry,
