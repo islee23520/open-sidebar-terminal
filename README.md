@@ -2,7 +2,7 @@
 
 ULW is a small VS Code extension that runs one native shell terminal in the secondary sidebar.
 
-It intentionally has no terminal multiplexer, session manager, AI integration, HTTP service, dashboard, or multi-pane layout. Opening ULW creates one `node-pty` process and connects it to one xterm.js terminal in either the secondary sidebar or an editor-group tab.
+It intentionally has no terminal multiplexer UI of its own — it can attach to an external one (Herdr) — and no session manager, AI integration, HTTP service, dashboard, or multi-pane layout. Opening ULW creates one `node-pty` process and connects it to one xterm.js terminal in either the secondary sidebar or an editor-group tab.
 
 ## Use
 
@@ -14,6 +14,16 @@ The shell starts in the first workspace folder. When no workspace is open, it st
 
 Run **ULW: Toggle Terminal Location** (`ulw.toggleEditorLocation`) to move the same shell between the secondary sidebar and an editor-group tab. Toggle again, or close the editor tab, to return to the sidebar. Switching surfaces reuses the same shell and replays recent scrollback into the newly focused xterm.
 
+## Attach to a running Herdr agent
+
+Use **ULW: Attach Herdr Session** (`ulw.attachHerdrSession`) to open a QuickPick of live Herdr agents, then choose the session to take over.
+
+- The picker is populated from the Herdr CLI `agent list` output, and ULW warns when takeover will replace other direct Herdr clients.
+- Taking control is not auto-restored to those other clients; ULW owns the session only while attached.
+- Any attach failure or external closure restores the local shell automatically.
+
+Use **ULW: Detach Herdr Session** (`ulw.detachHerdrSession`) to release ULW's controller and restore the local shell. A previously displaced direct Herdr client is not automatically restored.
+
 The terminal automatically inherits the active VS Code terminal palette, including ANSI colors, cursor colors, selections, and live theme changes. Drag-selecting terminal text copies the finished selection to the system clipboard.
 
 ## Commands
@@ -23,6 +33,8 @@ The terminal automatically inherits the active VS Code terminal palette, includi
 | `ulw.toggleEditorLocation` | Toggle the terminal between secondary sidebar and editor group |
 | `ulw.sendSelectionToTerminal` | Send the active editor selection to the terminal |
 | `ulw.sendFileToTerminal` | Send an explorer file path to the terminal |
+| `ulw.attachHerdrSession` | Attach to a running Herdr agent |
+| `ulw.detachHerdrSession` | Detach from a running Herdr agent |
 
 ## Settings
 
@@ -36,6 +48,9 @@ The terminal automatically inherits the active VS Code terminal palette, includi
 | `ulw.scrollback` | `10000` | Scrollback line count |
 | `ulw.shellPath` | empty | Shell executable; empty uses the VS Code or system default |
 | `ulw.shellArgs` | `[]` | Arguments passed to the shell |
+| `ulw.herdr.executablePath` | `herdr` | Herdr executable path; GUI-launched VS Code may need an explicit absolute path if PATH does not include herdr |
+| `ulw.herdr.socketPath` | empty | Optional Herdr socket path; ignored when a named session is configured |
+| `ulw.herdr.session` | empty | Optional named Herdr session; takes precedence over the socket path |
 
 ## Development
 

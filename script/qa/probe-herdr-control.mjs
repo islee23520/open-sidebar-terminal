@@ -416,7 +416,7 @@ async function main() {
       informational_only: true,
       acceptance_raw_line: scrollFrame.rawLine,
       result: "no command-correlated acknowledgment is guaranteed; shapes were accepted without rejection and the bridge remained writable",
-    }; 
+    };
 
     primary.send({ type: "terminal.release" });
     const released = await primary.waitFor((record) => record.type === "terminal.closed", "release closure");

@@ -316,20 +316,20 @@ describe("createTerminalView", () => {
     it("postMessage {type:'reset'} -> terminal.reset() called AND sentinel written before reset disappears", () => {
       const container = document.createElement("div");
       createTerminalView(container);
-      
+
       // Simulate writing a sentinel
       window.dispatchEvent(
         new MessageEvent("message", { data: { type: "output", data: "ULW_SENTINEL_OLD" } }),
       );
       expect(terminalWrite).toHaveBeenCalledWith("ULW_SENTINEL_OLD");
-      
+
       // Dispatch reset
       window.dispatchEvent(
         new MessageEvent("message", { data: { type: "reset" } }),
       );
-      
+
       expect(terminalReset).toHaveBeenCalled();
-      
+
       // Since it's a mock, we assert the mock order (write happened before reset)
       const writeOrder = terminalWrite.mock.invocationCallOrder[0];
       const resetOrder = terminalReset.mock.invocationCallOrder[0];
@@ -339,24 +339,24 @@ describe("createTerminalView", () => {
     it("renders badge for typed phases and clears on shell phase", () => {
       const container = document.createElement("div");
       createTerminalView(container);
-      
+
       // attached+label -> badge visible with label text
       window.dispatchEvent(
         new MessageEvent("message", { data: { type: "sourceState", source: "herdr", phase: "attached", label: "probe" } }),
       );
-      
+
       let badge = container.querySelector(".ulw-status-badge");
       expect(badge).not.toBeNull();
       expect(badge?.getAttribute("role")).toBe("status");
       expect(badge?.getAttribute("aria-live")).toBe("polite");
       expect(badge?.textContent).toBe("Attached: probe");
       expect(badge?.classList.contains("error")).toBe(false);
-      
+
       // attaching -> badge visible
       window.dispatchEvent(
         new MessageEvent("message", { data: { type: "sourceState", source: "herdr", phase: "attaching" } }),
       );
-      
+
       badge = container.querySelector(".ulw-status-badge");
       expect(badge?.textContent).toBe("Attaching");
 
@@ -364,39 +364,39 @@ describe("createTerminalView", () => {
       window.dispatchEvent(
         new MessageEvent("message", { data: { type: "sourceState", source: "herdr", phase: "detaching" } }),
       );
-      
+
       badge = container.querySelector(".ulw-status-badge");
       expect(badge?.textContent).toBe("Detaching");
-      
+
       // error+message -> message inline, error class
       window.dispatchEvent(
         new MessageEvent("message", { data: { type: "sourceState", source: "herdr", phase: "error", message: "boom" } }),
       );
-      
+
       badge = container.querySelector(".ulw-status-badge");
       expect(badge?.textContent).toBe("Error: boom");
       expect(badge?.classList.contains("error")).toBe(true);
-      
+
       // shell -> badge cleared
       window.dispatchEvent(
         new MessageEvent("message", { data: { type: "sourceState", source: "shell", phase: "shell" } }),
       );
-      
+
       expect(container.querySelector(".ulw-status-badge")).toBeNull();
     });
 
     it("rejects malformed external payload (cast through unknown guard) without throw, badge unchanged", () => {
       const container = document.createElement("div");
       createTerminalView(container);
-      
+
       // set an initial valid state
       window.dispatchEvent(
         new MessageEvent("message", { data: { type: "sourceState", source: "herdr", phase: "attaching" } }),
       );
-      
+
       const badge = container.querySelector(".ulw-status-badge");
       expect(badge?.textContent).toBe("Attaching");
-      
+
       // exercise the guard directly
       expect(isSourceStateMessage({ type: "sourceState", source: "herdr", phase: "invalid_phase_name" } as unknown)).toBe(false);
       expect(isSourceStateMessage({ type: "sourceState", source: "herdr", phase: "attaching" } as unknown)).toBe(true);
@@ -405,7 +405,7 @@ describe("createTerminalView", () => {
       window.dispatchEvent(
         new MessageEvent("message", { data: { type: "sourceState", source: "herdr", phase: "invalid_phase_name" } as unknown }),
       );
-      
+
       // The badge should not have changed or crashed
       const badgeAfter = container.querySelector(".ulw-status-badge");
       expect(badgeAfter).toBe(badge);
