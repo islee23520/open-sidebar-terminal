@@ -2,7 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as ptyMock from "../test/mocks/node-pty";
 import type { HostMessage, WebviewMessage } from "../types";
 import * as vscode from "../test/mocks/vscode";
+import {
+  HerdrAttachController,
+  type HerdrAttachPresenter,
+} from "../herdr/HerdrAttachController";
 import { TerminalManager } from "../terminals/TerminalManager";
+import type {
+  TerminalTransport,
+  TerminalTransportExitReason,
+} from "../terminals/TerminalTransport";
 import { TerminalProvider } from "./TerminalProvider";
 
 vi.mock("node-pty", async () => vi.importActual("../test/mocks/node-pty"));
@@ -45,12 +53,310 @@ function createView(): { readonly view: unknown; readonly webview: TestWebview }
   };
 }
 
+class FakeHerdrTransport implements TerminalTransport {
+  public readonly kind = "herdr-control" as const;
+  private readonly outputEmitter = new vscode.EventEmitter<{
+    data: string;
+    replay: "append" | "replace";
+  }>();
+  private readonly exitEmitter = new vscode.EventEmitter<{
+    reason: TerminalTransportExitReason;
+    message?: string;
+  }>();
+  public readonly onOutput = this.outputEmitter.event;
+  public readonly onExit = this.exitEmitter.event;
+  public readonly write = vi.fn();
+  public readonly resize = vi.fn();
+  public readonly close = vi.fn(async () => undefined);
+
+  public output(data: string, replay: "append" | "replace"): void {
+    this.outputEmitter.fire({ data, replay });
+  }
+
+  public exit(reason: TerminalTransportExitReason, message?: string): void {
+    this.exitEmitter.fire(message ? { reason, message } : { reason });
+  }
+}
+
+function createAttachHarness(): {
+  readonly manager: TerminalManager;
+  readonly provider: TerminalProvider;
+  readonly controller: HerdrAttachController;
+  readonly transports: FakeHerdrTransport[];
+} {
+  const manager = new TerminalManager();
+  const transports: FakeHerdrTransport[] = [];
+  let provider!: TerminalProvider;
+  const presenter: HerdrAttachPresenter = {
+    postReset: () => provider.postReset(),
+    postOutput: (data) => provider.postOutput(data),
+    postSourceState: (state) => provider.postSourceState(state),
+  };
+  const controller = new HerdrAttachController({
+    manager,
+    terminalId: "sidebar-shell",
+    transportFactory: () => {
+      const transport = new FakeHerdrTransport();
+      transports.push(transport);
+      return transport;
+    },
+    presenter,
+  });
+  provider = new TerminalProvider(extensionUri, manager, controller);
+  return { manager, provider, controller, transports };
+}
+
+async function attach(
+  controller: HerdrAttachController,
+  transports: FakeHerdrTransport[],
+  label = "Agent A",
+): Promise<FakeHerdrTransport> {
+  const attaching = controller.attach(
+    { terminalId: "herdr-terminal", label },
+    { cols: 80, rows: 24 },
+  );
+  const transport = transports[0];
+  transport.output("HERDR FULL", "replace");
+  await attaching;
+  return transport;
+}
+
+function posted(webview: { readonly postMessage: ReturnType<typeof vi.fn> }): unknown[] {
+  return webview.postMessage.mock.calls.map(([message]) => message);
+}
+
 describe("TerminalProvider", () => {
   beforeEach(() => vscode.resetMocks());
 
+  describe("Herdr controller integration", () => {
+    it("mirrors attach output to both mounted surfaces while badge and reset target the active surface", async () => {
+      const { provider, controller, transports } = createAttachHarness();
+      const { view, webview } = createView();
+      provider.resolveWebviewView(view as never);
+      webview.send({ type: "ready", cols: 80, rows: 24 });
+      provider.toggleEditorLocation();
+      const panel = lastResult(vscode.window.createWebviewPanel.mock.results)
+        ?.value as vscode.MockWebviewPanel;
+      panel.webview.send({ type: "ready", cols: 100, rows: 30 });
+      webview.postMessage.mockClear();
+      panel.webview.postMessage.mockClear();
+
+      await attach(controller, transports);
+
+      expect(posted(panel.webview)).toEqual([
+        {
+          type: "sourceState",
+          source: "herdr",
+          phase: "attaching",
+          label: "Agent A",
+        },
+        { type: "reset" },
+        { type: "output", data: "HERDR FULL" },
+        {
+          type: "sourceState",
+          source: "herdr",
+          phase: "attached",
+          label: "Agent A",
+        },
+      ]);
+      expect(posted(webview)).toEqual([
+        { type: "output", data: "HERDR FULL" },
+      ]);
+      expect(posted(webview)).toContainEqual({
+        type: "output",
+        data: "HERDR FULL",
+      });
+      expect(posted(webview)).not.toContainEqual(
+        expect.objectContaining({ type: "sourceState" }),
+      );
+      expect(posted(webview)).not.toContainEqual({ type: "reset" });
+      expect(posted(panel.webview)).toContainEqual({
+        type: "output",
+        data: "HERDR FULL",
+      });
+      expect(posted(panel.webview)).toContainEqual({
+        type: "sourceState",
+        source: "herdr",
+        phase: "attached",
+        label: "Agent A",
+      });
+    });
+
+    it("posts reset immediately before live replacement output", async () => {
+      const { provider, controller, transports } = createAttachHarness();
+      const { view, webview } = createView();
+      provider.resolveWebviewView(view as never);
+      webview.send({ type: "ready", cols: 80, rows: 24 });
+      const transport = await attach(controller, transports);
+      webview.postMessage.mockClear();
+
+      transport.output("HERDR REPLACEMENT", "replace");
+
+      expect(posted(webview)).toEqual([
+        { type: "reset" },
+        { type: "output", data: "HERDR REPLACEMENT" },
+      ]);
+    });
+
+    it("rehydrates attached source and current badge on every surface ready", async () => {
+      const { manager, provider, controller, transports } = createAttachHarness();
+      const { view, webview } = createView();
+      provider.resolveWebviewView(view as never);
+      webview.send({ type: "ready", cols: 80, rows: 24 });
+      await attach(controller, transports);
+      transports[0].output(" + DELTA", "append");
+      const ensureLocalShell = vi.spyOn(manager, "ensureLocalShell");
+
+      provider.toggleEditorLocation();
+      const panel = lastResult(vscode.window.createWebviewPanel.mock.results)
+        ?.value as vscode.MockWebviewPanel;
+      panel.webview.postMessage.mockClear();
+      panel.webview.send({ type: "ready", cols: 100, rows: 30 });
+
+      expect(posted(panel.webview)).toEqual([
+        expect.objectContaining({ type: "config", fontSize: 14 }),
+        {
+          type: "sourceState",
+          source: "herdr",
+          phase: "attached",
+          label: "Agent A",
+        },
+        { type: "reset" },
+        { type: "output", data: "HERDR FULL + DELTA" },
+        { type: "focus" },
+      ]);
+      expect(ensureLocalShell).not.toHaveBeenCalled();
+      expect(manager.activeSource("sidebar-shell")).toBe("herdr-control");
+    });
+
+    it("rehydrates a switched surface mid-attach without replacing the attachment", async () => {
+      const { manager, provider, controller, transports } = createAttachHarness();
+      const { view, webview } = createView();
+      provider.resolveWebviewView(view as never);
+      webview.send({ type: "ready", cols: 80, rows: 24 });
+      const shell = lastResult(nodePty.spawn.mock.results)
+        ?.value as ptyMock.MockPtyProcess;
+      shell.emitData("shell history");
+      const ensureLocalShell = vi.spyOn(manager, "ensureLocalShell");
+      const attaching = controller.attach(
+        { terminalId: "herdr-terminal", label: "Agent A" },
+        { cols: 80, rows: 24 },
+      );
+
+      provider.toggleEditorLocation();
+      const panel = lastResult(vscode.window.createWebviewPanel.mock.results)
+        ?.value as vscode.MockWebviewPanel;
+      panel.webview.postMessage.mockClear();
+      panel.webview.send({ type: "ready", cols: 100, rows: 30 });
+
+      expect(posted(panel.webview)).toEqual([
+        expect.objectContaining({ type: "config", fontSize: 14 }),
+        {
+          type: "sourceState",
+          source: "herdr",
+          phase: "attaching",
+          label: "Agent A",
+        },
+        { type: "reset" },
+        { type: "output", data: "shell history" },
+        { type: "focus" },
+      ]);
+      expect(ensureLocalShell).not.toHaveBeenCalled();
+
+      transports[0].output("HERDR FULL", "replace");
+      await attaching;
+      expect(manager.activeSource("sidebar-shell")).toBe("herdr-control");
+    });
+
+    it("rejects inactive input and routes active input and provider writes to Herdr", async () => {
+      const { provider, controller, transports } = createAttachHarness();
+      const { view, webview } = createView();
+      provider.resolveWebviewView(view as never);
+      webview.send({ type: "ready", cols: 80, rows: 24 });
+      const transport = await attach(controller, transports);
+      provider.toggleEditorLocation();
+      const panel = lastResult(vscode.window.createWebviewPanel.mock.results)
+        ?.value as vscode.MockWebviewPanel;
+      panel.webview.send({ type: "ready", cols: 100, rows: 30 });
+      transport.write.mockClear();
+
+      webview.send({ type: "input", data: "inactive\r" });
+      panel.webview.send({ type: "input", data: "active\r" });
+      provider.write("selection-or-file");
+
+      expect(transport.write.mock.calls).toEqual([
+        ["active\r"],
+        ["selection-or-file"],
+      ]);
+    });
+
+    it("restores shell without shell-exit banner when bridge closes", async () => {
+      const { provider, controller, transports } = createAttachHarness();
+      const { view, webview } = createView();
+      provider.resolveWebviewView(view as never);
+      webview.send({ type: "ready", cols: 80, rows: 24 });
+      const shell = lastResult(nodePty.spawn.mock.results)
+        ?.value as ptyMock.MockPtyProcess;
+      shell.emitData("shell replay");
+      const transport = await attach(controller, transports);
+      webview.postMessage.mockClear();
+
+      transport.exit("takeover", "taken elsewhere");
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(posted(webview)).toEqual([
+        {
+          type: "sourceState",
+          source: "shell",
+          phase: "error",
+          message: "taken elsewhere",
+        },
+        { type: "reset" },
+        { type: "output", data: "shell replay" },
+        { type: "sourceState", source: "shell", phase: "shell" },
+      ]);
+      expect(posted(webview)).not.toContainEqual(
+        expect.objectContaining({ type: "exit" }),
+      );
+    });
+
+    it("leaves shell display untouched when attach fails before the first frame", async () => {
+      const { provider, controller, transports } = createAttachHarness();
+      const { view, webview } = createView();
+      provider.resolveWebviewView(view as never);
+      webview.send({ type: "ready", cols: 80, rows: 24 });
+      webview.postMessage.mockClear();
+
+      const attaching = controller.attach(
+        { terminalId: "herdr-terminal", label: "Agent A" },
+        { cols: 80, rows: 24 },
+      );
+      transports[0].exit("protocol-error", "bad first frame");
+      await attaching;
+
+      expect(posted(webview)).toEqual([
+        {
+          type: "sourceState",
+          source: "herdr",
+          phase: "attaching",
+          label: "Agent A",
+        },
+        {
+          type: "sourceState",
+          source: "shell",
+          phase: "error",
+          message: "bad first frame",
+        },
+        { type: "sourceState", source: "shell", phase: "shell" },
+      ]);
+      expect(posted(webview)).not.toContainEqual({ type: "reset" });
+    });
+  });
+
   it("starts one shell from ready and forwards the terminal contract", () => {
     const manager = new TerminalManager();
-    const createSpy = vi.spyOn(manager, "createTerminal");
+    const ensureSpy = vi.spyOn(manager, "ensureLocalShell");
     const writeSpy = vi.spyOn(manager, "write");
     const resizeSpy = vi.spyOn(manager, "resize");
     const provider = new TerminalProvider(extensionUri, manager);
@@ -61,14 +367,16 @@ describe("TerminalProvider", () => {
     webview.send({ type: "input", data: "pwd\r" });
     webview.send({ type: "resize", cols: 100, rows: 30 });
 
-    expect(createSpy).toHaveBeenCalledOnce();
-    expect(createSpy).toHaveBeenCalledWith("sidebar-shell", 90, 28);
+    expect(ensureSpy).toHaveBeenCalledOnce();
+    expect(ensureSpy).toHaveBeenCalledWith("sidebar-shell", 90, 28);
     expect(writeSpy).toHaveBeenCalledWith("sidebar-shell", "pwd\r");
     expect(resizeSpy).toHaveBeenCalledWith("sidebar-shell", 100, 30);
-    expect(webview.postMessage).toHaveBeenCalledWith(
+    expect(posted(webview)).toEqual([
       expect.objectContaining({ type: "config", fontSize: 14 }),
-    );
-    expect(webview.postMessage).toHaveBeenCalledWith({ type: "focus" });
+      { type: "sourceState", source: "shell", phase: "shell" },
+      { type: "reset" },
+      { type: "focus" },
+    ]);
     expect(webview.html).toContain('id="terminal-container"');
   });
 
@@ -125,13 +433,23 @@ describe("TerminalProvider", () => {
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
     webview.send({ type: "ready", cols: 80, rows: 24 });
+    let resolveClipboard!: () => void;
+    const clipboardPosted = new Promise<void>((resolve) => {
+      resolveClipboard = resolve;
+    });
+    webview.postMessage.mockImplementation(async (message: HostMessage) => {
+      if (message.type === "clipboardImage") {
+        resolveClipboard();
+      }
+      return true;
+    });
 
     webview.send({
       type: "imagePasted",
       data: "data:image/png;base64,ZmFrZQ==",
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await clipboardPosted;
     expect(webview.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: "clipboardImage" }),
     );
@@ -210,8 +528,16 @@ describe("TerminalProvider", () => {
     provider.resolveWebviewView(view as never);
     const count = webview.postMessage.mock.calls.length;
 
-    manager["dataEmitter"].fire({ id: "other", data: "ignored" });
-    manager["exitEmitter"].fire({ id: "other", code: 1 });
+    manager["dataEmitter"].fire({
+      id: "other",
+      data: "ignored",
+      replay: "append",
+    });
+    manager["exitEmitter"].fire({
+      id: "other",
+      code: 1,
+      reason: "process-exit",
+    });
     (view as { onDidDispose: (listener: () => void) => vscode.Disposable })
       .onDidDispose(() => undefined);
     provider["view"] = undefined;
@@ -252,7 +578,7 @@ describe("TerminalProvider", () => {
 
   it("routes editor ready/input/resize and PTY output through the editor surface", () => {
     const manager = new TerminalManager();
-    const createSpy = vi.spyOn(manager, "createTerminal");
+    const ensureSpy = vi.spyOn(manager, "ensureLocalShell");
     const writeSpy = vi.spyOn(manager, "write");
     const resizeSpy = vi.spyOn(manager, "resize");
     const provider = new TerminalProvider(extensionUri, manager);
@@ -267,7 +593,7 @@ describe("TerminalProvider", () => {
     panel.webview.send({ type: "input", data: "ls\r" });
     panel.webview.send({ type: "resize", cols: 130, rows: 42 });
 
-    expect(createSpy).toHaveBeenCalledWith("sidebar-shell", 120, 40);
+    expect(ensureSpy).toHaveBeenCalledWith("sidebar-shell", 120, 40);
     expect(writeSpy).toHaveBeenCalledWith("sidebar-shell", "ls\r");
     expect(resizeSpy).toHaveBeenCalledWith("sidebar-shell", 130, 42);
     expect(panel.webview.postMessage).toHaveBeenCalledWith(
@@ -364,10 +690,13 @@ describe("TerminalProvider", () => {
     panel.webview.postMessage.mockClear();
     panel.webview.send({ type: "ready", cols: 100, rows: 30 });
 
-    expect(panel.webview.postMessage).toHaveBeenCalledWith({
-      type: "output",
-      data: "prior output",
-    });
+    expect(posted(panel.webview)).toEqual([
+      expect.objectContaining({ type: "config", fontSize: 14 }),
+      { type: "sourceState", source: "shell", phase: "shell" },
+      { type: "reset" },
+      { type: "output", data: "prior output" },
+      { type: "focus" },
+    ]);
   });
 
   it("mirrors live PTY output to both surfaces so the inactive one keeps running session text", () => {
@@ -441,7 +770,7 @@ describe("TerminalProvider", () => {
 
   it("starts the shell from editor ready without a sidebar surface", () => {
     const manager = new TerminalManager();
-    const createSpy = vi.spyOn(manager, "createTerminal");
+    const ensureSpy = vi.spyOn(manager, "ensureLocalShell");
     const writeSpy = vi.spyOn(manager, "write");
     const provider = new TerminalProvider(extensionUri, manager);
 
@@ -455,7 +784,7 @@ describe("TerminalProvider", () => {
     panel.webview.send({ type: "ready", cols: 90, rows: 28 });
     panel.webview.send({ type: "input", data: "echo hi\r" });
 
-    expect(createSpy).toHaveBeenCalledWith("sidebar-shell", 90, 28);
+    expect(ensureSpy).toHaveBeenCalledWith("sidebar-shell", 90, 28);
     expect(writeSpy).toHaveBeenCalledWith("sidebar-shell", "echo hi\r");
     expect(panel.webview.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: "config" }),
@@ -495,7 +824,7 @@ describe("TerminalProvider", () => {
   it("dispose suppresses the workbench restore side effect", () => {
     const manager = new TerminalManager();
     const provider = new TerminalProvider(extensionUri, manager);
-    const { view, webview } = createView();
+    const { view } = createView();
     provider.resolveWebviewView(view as never);
     provider.toggleEditorLocation();
     vscode.commands.executeCommand.mockClear();
@@ -508,9 +837,9 @@ describe("TerminalProvider", () => {
   });
 
   describe("characterization: current one-PTY provider behavior", () => {
-    it("creates or resizes from ready and posts config before focus", () => {
+    it("ensures or resizes from ready and posts config before focus", () => {
       const manager = new TerminalManager();
-      const createSpy = vi.spyOn(manager, "createTerminal");
+      const ensureSpy = vi.spyOn(manager, "ensureLocalShell");
       const resizeSpy = vi.spyOn(manager, "resize");
       const provider = new TerminalProvider(extensionUri, manager);
       const { view, webview } = createView();
@@ -519,7 +848,7 @@ describe("TerminalProvider", () => {
       webview.send({ type: "ready", cols: 90, rows: 28 });
       webview.send({ type: "ready", cols: 100, rows: 30 });
 
-      expect(createSpy).toHaveBeenCalledWith("sidebar-shell", 90, 28);
+      expect(ensureSpy).toHaveBeenCalledWith("sidebar-shell", 90, 28);
       expect(resizeSpy).toHaveBeenCalledWith("sidebar-shell", 100, 30);
       expect(nodePty.spawn).toHaveBeenCalledWith(
         expect.any(String),
@@ -620,7 +949,7 @@ describe("TerminalProvider", () => {
 
     it("keeps the same PTY alive across surface switching", () => {
       const manager = new TerminalManager();
-      const createSpy = vi.spyOn(manager, "createTerminal");
+      const ensureSpy = vi.spyOn(manager, "ensureLocalShell");
       const provider = new TerminalProvider(extensionUri, manager);
       const { view, webview } = createView();
       provider.resolveWebviewView(view as never);
@@ -631,7 +960,7 @@ describe("TerminalProvider", () => {
       expect(provider.terminalCount()).toBe(1);
       provider.toggleEditorLocation();
       expect(provider.terminalCount()).toBe(1);
-      expect(createSpy).toHaveBeenCalledOnce();
+      expect(ensureSpy).toHaveBeenCalledOnce();
       expect(nodePty.spawn).toHaveBeenCalledOnce();
     });
   });

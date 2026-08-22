@@ -3,6 +3,11 @@ import * as os from "os";
 import * as path from "path";
 import { randomBytes, randomUUID } from "crypto";
 import * as vscode from "vscode";
+import type {
+  HerdrAttachController,
+  HerdrAttachPresenter,
+  SourceState,
+} from "../herdr/HerdrAttachController";
 import type { CursorStyle, HostMessage, TerminalConfig, WebviewMessage } from "../types";
 import { TerminalManager } from "../terminals/TerminalManager";
 import { renderTerminalHtml } from "../webview/terminal/html";
@@ -11,37 +16,45 @@ const TERMINAL_ID = "sidebar-shell";
 const EDITOR_VIEW_TYPE = "ulw.terminalEditor";
 const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
-const MAX_SCROLLBACK_CHARS = 500_000;
 
 export type TerminalLocation = "sidebar" | "editor";
 
-export class TerminalProvider implements vscode.WebviewViewProvider, vscode.Disposable {
+export class TerminalProvider
+  implements vscode.WebviewViewProvider, vscode.Disposable, HerdrAttachPresenter
+{
   public static readonly viewType = "ulw";
 
   private view: vscode.WebviewView | undefined;
   private editorPanel: vscode.WebviewPanel | undefined;
   private activeLocation: TerminalLocation = "sidebar";
   private disposing = false;
-  private scrollback = "";
   private readonly disposables: vscode.Disposable[] = [];
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly terminalManager: TerminalManager,
+    private readonly attachController?: HerdrAttachController,
   ) {
     this.disposables.push(
-      terminalManager.onData(({ id, data }) => {
+      terminalManager.onData(({ id, data, replay }) => {
         if (id !== TERMINAL_ID) {
           return;
         }
-        this.appendScrollback(data);
+        if (replay === "replace") {
+          this.postMessage({ type: "reset" });
+        }
         this.postMessage({ type: "output", data });
       }),
       terminalManager.onExit(({ id, code, signal }) => {
         if (id !== TERMINAL_ID) {
           return;
         }
-        this.scrollback = "";
+        if (
+          this.terminalManager.activeSource(TERMINAL_ID) === "herdr-control" ||
+          this.attachController?.sourceState.phase === "attached"
+        ) {
+          return;
+        }
         this.postMessage({ type: "exit", code, signal });
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
@@ -94,6 +107,18 @@ export class TerminalProvider implements vscode.WebviewViewProvider, vscode.Disp
     this.terminalManager.write(TERMINAL_ID, data);
   }
 
+  public postReset(): void {
+    this.postToSurface(this.activeLocation, { type: "reset" });
+  }
+
+  public postOutput(data: string): void {
+    this.postMessage({ type: "output", data });
+  }
+
+  public postSourceState(state: SourceState): void {
+    this.postSourceStateToSurface(this.activeLocation, state);
+  }
+
   public isRunning(): boolean {
     return this.terminalManager.hasTerminal(TERMINAL_ID);
   }
@@ -113,7 +138,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
     this.view = undefined;
     this.activeLocation = "sidebar";
-    this.scrollback = "";
     this.disposing = false;
   }
 
@@ -176,14 +200,29 @@ export class TerminalProvider implements vscode.WebviewViewProvider, vscode.Disp
       case "ready": {
         const isActive = source === this.activeLocation;
         if (isActive) {
-          if (!this.terminalManager.hasTerminal(TERMINAL_ID)) {
-            this.terminalManager.createTerminal(TERMINAL_ID, message.cols, message.rows);
-          } else {
+          const activeSource = this.terminalManager.activeSource(TERMINAL_ID);
+          const controllerPhase = this.attachController?.sourceState.phase ?? "shell";
+          if (activeSource === undefined && controllerPhase === "shell") {
+            this.terminalManager.ensureLocalShell(
+              TERMINAL_ID,
+              message.cols,
+              message.rows,
+            );
+          } else if (activeSource !== undefined) {
             this.terminalManager.resize(TERMINAL_ID, message.cols, message.rows);
           }
         }
         this.postToSurface(source, { type: "config", ...this.readConfig() });
-        this.replayScrollback(source);
+        const sourceState: SourceState = this.attachController?.sourceState ?? {
+          source: "shell",
+          phase: "shell",
+        };
+        this.postSourceStateToSurface(source, sourceState);
+        this.postToSurface(source, { type: "reset" });
+        const replay = this.terminalManager.replay(TERMINAL_ID);
+        if (replay.length > 0) {
+          this.postToSurface(source, { type: "output", data: replay });
+        }
         if (isActive) {
           this.postMessage({ type: "focus" });
         }
@@ -238,18 +277,17 @@ export class TerminalProvider implements vscode.WebviewViewProvider, vscode.Disp
     void this.view?.webview.postMessage(message);
   }
 
-  private replayScrollback(source: TerminalLocation): void {
-    if (!this.scrollback) {
-      return;
-    }
-    this.postToSurface(source, { type: "output", data: this.scrollback });
-  }
-
-  private appendScrollback(data: string): void {
-    this.scrollback += data;
-    if (this.scrollback.length > MAX_SCROLLBACK_CHARS) {
-      this.scrollback = this.scrollback.slice(this.scrollback.length - MAX_SCROLLBACK_CHARS);
-    }
+  private postSourceStateToSurface(
+    source: TerminalLocation,
+    state: SourceState,
+  ): void {
+    this.postToSurface(source, {
+      type: "sourceState",
+      source: state.source,
+      phase: state.phase,
+      ...(state.label === undefined ? {} : { label: state.label }),
+      ...(state.message === undefined ? {} : { message: state.message }),
+    });
   }
 
   private configureWebview(webview: vscode.Webview): void {
