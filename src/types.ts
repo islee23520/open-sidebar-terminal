@@ -20,4 +20,12 @@ export type HostMessage =
   | { readonly type: "exit"; readonly code: number; readonly signal?: number }
   | ({ readonly type: "config" } & TerminalConfig)
   | { readonly type: "focus" }
-  | { readonly type: "clipboardImage"; readonly filePath: string };
+  | { readonly type: "clipboardImage"; readonly filePath: string }
+  | { readonly type: "reset" }
+  | {
+      readonly type: "sourceState";
+      readonly source: "shell" | "herdr";
+      readonly phase: "shell" | "attaching" | "attached" | "detaching" | "error";
+      readonly label?: string;
+      readonly message?: string;
+    };

@@ -4,6 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import type { HostMessage } from "../../types";
 import { postMessage } from "../shared/vscode-api";
 import { readTerminalTheme, watchTerminalTheme } from "./theme";
+import "./terminal.css";
 
 export interface TerminalView {
   readonly terminal: Terminal;
@@ -17,6 +18,37 @@ const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 
 type RendererPreference = "webgl" | "dom";
+
+export function isSourceStateMessage(
+  msg: unknown,
+): msg is Extract<HostMessage, { type: "sourceState" }> {
+  if (!msg || typeof msg !== "object") {
+    return false;
+  }
+  const candidate = msg as Record<string, unknown>;
+  if (candidate.type !== "sourceState") {
+    return false;
+  }
+  if (candidate.source !== "shell" && candidate.source !== "herdr") {
+    return false;
+  }
+  if (
+    candidate.phase !== "shell" &&
+    candidate.phase !== "attaching" &&
+    candidate.phase !== "attached" &&
+    candidate.phase !== "detaching" &&
+    candidate.phase !== "error"
+  ) {
+    return false;
+  }
+  if (candidate.label !== undefined && typeof candidate.label !== "string") {
+    return false;
+  }
+  if (candidate.message !== undefined && typeof candidate.message !== "string") {
+    return false;
+  }
+  return true;
+}
 
 function readRendererPreference(): RendererPreference {
   return (globalThis as { __ulwRenderer?: unknown }).__ulwRenderer === "dom"
@@ -146,6 +178,34 @@ export function createTerminalView(container: HTMLElement): TerminalView {
   };
   container.addEventListener("paste", handlePasteEvent);
 
+  let badgeElement: HTMLDivElement | undefined;
+  const updateBadge = (message: Extract<HostMessage, { type: "sourceState" }>) => {
+    if (message.phase === "shell") {
+      if (badgeElement) {
+        badgeElement.remove();
+        badgeElement = undefined;
+      }
+      return;
+    }
+
+    if (!badgeElement) {
+      badgeElement = document.createElement("div");
+      badgeElement.className = "ulw-status-badge";
+      badgeElement.setAttribute("role", "status");
+      badgeElement.setAttribute("aria-live", "polite");
+      container.appendChild(badgeElement);
+    }
+
+    if (message.phase === "error") {
+      badgeElement.classList.add("error");
+      badgeElement.textContent = message.message ? `Error: ${message.message}` : "Error attaching";
+    } else {
+      badgeElement.classList.remove("error");
+      const phaseText = message.phase.charAt(0).toUpperCase() + message.phase.slice(1);
+      badgeElement.textContent = message.label ? `${phaseText}: ${message.label}` : phaseText;
+    }
+  };
+
   const messageHandler = (event: MessageEvent<HostMessage>) => {
     const message = event.data;
     switch (message.type) {
@@ -171,6 +231,18 @@ export function createTerminalView(container: HTMLElement): TerminalView {
       case "clipboardImage":
         terminal.paste(message.filePath);
         break;
+      case "reset":
+        terminal.reset();
+        break;
+      case "sourceState":
+        if (isSourceStateMessage(message)) {
+          updateBadge(message);
+        }
+        break;
+      default: {
+        const _exhaustiveCheck: never = message;
+        break;
+      }
     }
   };
   window.addEventListener("message", messageHandler);
