@@ -210,6 +210,7 @@
     "test": "vitest run",
     "pretest:e2e": "node -e \"require('fs').rmSync('out', { recursive: true, force: true })\" && npm run compile && npm run compile:e2e",
     "test:e2e": "vscode-test",
+    "test:e2e:herdr": "npm run pretest:e2e && vscode-test --label herdr",
     "test:all": "npm run test && npm run test:e2e",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

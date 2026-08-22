@@ -6,6 +6,8 @@ import {
   HerdrAttachController,
   type HerdrAttachControllerOptions,
   type HerdrAttachPresenter,
+  type HerdrAttachTarget,
+  type SourceState,
 } from "../herdr/HerdrAttachController";
 import {
   HerdrNotInstalledError,
@@ -64,10 +66,18 @@ export interface UlwExtensionApi {
   readonly onTerminalStart: vscode.Event<number>;
   readonly onTerminalData: vscode.Event<string>;
   readonly onTerminalExit: vscode.Event<number>;
+  readonly onSourceState: vscode.Event<SourceState>;
   isTerminalRunning(): boolean;
   terminalCount(): number;
   writeToTerminal(data: string): void;
   toggleEditorLocation(): void;
+  attachToHerdr(target: HerdrAttachTarget): Promise<void>;
+  detachHerdr(): Promise<void>;
+  resizeTerminal(cols: number, rows: number): void;
+  getSurfaceSnapshot(): {
+    readonly sourceState: SourceState;
+    readonly renderedText: string;
+  };
 }
 
 export class ExtensionLifecycle implements vscode.Disposable {
@@ -173,10 +183,22 @@ export class ExtensionLifecycle implements vscode.Disposable {
       onTerminalStart: startEmitter.event,
       onTerminalData: dataEmitter.event,
       onTerminalExit: exitEmitter.event,
+      onSourceState: attachController.onSourceState,
       isTerminalRunning: () => provider.isRunning(),
       terminalCount: () => provider.terminalCount(),
       writeToTerminal: (data) => provider.write(data),
       toggleEditorLocation: () => provider.toggleEditorLocation(),
+      attachToHerdr: (target) =>
+        attachController.attach(target, DEFAULT_DIMENSIONS),
+      detachHerdr: () => attachController.detach(),
+      resizeTerminal: (cols, rows) =>
+        terminalManager.resize(TERMINAL_ID, cols, rows),
+      getSurfaceSnapshot: () => ({
+        sourceState: attachController.sourceState,
+        renderedText: sanitizeTerminalReplay(
+          terminalManager.replay(TERMINAL_ID),
+        ),
+      }),
     };
   }
 
@@ -369,6 +391,14 @@ export class ExtensionLifecycle implements vscode.Disposable {
       message,
     );
   }
+}
+
+function sanitizeTerminalReplay(replay: string): string {
+  return replay
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/\r/g, "")
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
 }
 
 const runHerdrCommand: HerdrCommandRunner = (
