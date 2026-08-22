@@ -60,6 +60,16 @@
         "command": "ulw.sendFileToTerminal",
         "title": "ULW: Send File to Terminal",
         "category": "ULW"
+      },
+      {
+        "command": "ulw.attachHerdrSession",
+        "title": "ULW: Attach Herdr Session",
+        "category": "ULW"
+      },
+      {
+        "command": "ulw.detachHerdrSession",
+        "title": "ULW: Detach Herdr Session",
+        "category": "ULW"
       }
     ],
     "menus": {
@@ -167,6 +177,24 @@
           "default": [],
           "scope": "machine-overridable",
           "description": "Arguments passed to the shell executable."
+        },
+        "ulw.herdr.executablePath": {
+          "type": "string",
+          "default": "herdr",
+          "scope": "machine-overridable",
+          "description": "Herdr executable path. GUI-launched VS Code may not inherit your shell PATH, so configure an absolute path when herdr cannot be found."
+        },
+        "ulw.herdr.socketPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "Optional Herdr socket path. Ignored when a named Herdr session is configured."
+        },
+        "ulw.herdr.session": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "Optional named Herdr session. When set, it takes precedence over the socket path."
         }
       }
     }
@@ -219,6 +247,8 @@
     "onCommand:ulw.toggleEditorLocation",
     "onCommand:ulw.sendSelectionToTerminal",
     "onCommand:ulw.sendFileToTerminal",
+    "onCommand:ulw.attachHerdrSession",
+    "onCommand:ulw.detachHerdrSession",
     "onStartupFinished"
   ]
 }

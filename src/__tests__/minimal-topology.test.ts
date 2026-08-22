@@ -37,6 +37,8 @@ describe("minimal sidebar terminal topology", () => {
       "onCommand:ulw.toggleEditorLocation",
       "onCommand:ulw.sendSelectionToTerminal",
       "onCommand:ulw.sendFileToTerminal",
+      "onCommand:ulw.attachHerdrSession",
+      "onCommand:ulw.detachHerdrSession",
       "onStartupFinished",
     ]);
     expect(Object.keys(manifest.contributes.viewsContainers)).toEqual([
@@ -60,6 +62,8 @@ describe("minimal sidebar terminal topology", () => {
     const commandIds = commands.map((c) => c.command).sort();
 
     expect(commandIds).toEqual([
+      "ulw.attachHerdrSession",
+      "ulw.detachHerdrSession",
       "ulw.sendFileToTerminal",
       "ulw.sendSelectionToTerminal",
       "ulw.toggleEditorLocation",
@@ -101,6 +105,9 @@ describe("minimal sidebar terminal topology", () => {
       "ulw.defaultLocation",
       "ulw.fontFamily",
       "ulw.fontSize",
+      "ulw.herdr.executablePath",
+      "ulw.herdr.session",
+      "ulw.herdr.socketPath",
       "ulw.renderer",
       "ulw.scrollback",
       "ulw.shellArgs",

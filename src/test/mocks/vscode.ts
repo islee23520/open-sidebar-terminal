@@ -139,6 +139,12 @@ function createMockWebviewPanel(): MockWebviewPanel {
 }
 
 export const window = {
+  showQuickPick: vi.fn(async (items: readonly unknown[], _options?: unknown) => {
+    void items;
+    return undefined as unknown;
+  }),
+  showWarningMessage: vi.fn(async (_message: string, ..._items: string[]) => undefined as string | undefined),
+  showInformationMessage: vi.fn(async (_message: string, ..._items: string[]) => undefined as string | undefined),
   registerWebviewViewProvider: vi.fn(() => new Disposable()),
   createWebviewPanel: vi.fn(
     (
@@ -164,6 +170,15 @@ export function resetMocks(): void {
   setConfiguration({});
   commands.registerCommand.mockClear();
   commands.executeCommand.mockClear();
+  window.showQuickPick.mockReset();
+  window.showQuickPick.mockImplementation(async (items: readonly unknown[], _options?: unknown) => {
+    void items;
+    return undefined as unknown;
+  });
+  window.showWarningMessage.mockReset();
+  window.showWarningMessage.mockResolvedValue(undefined);
+  window.showInformationMessage.mockReset();
+  window.showInformationMessage.mockResolvedValue(undefined);
   window.registerWebviewViewProvider.mockClear();
   window.createWebviewPanel.mockClear();
   window.createWebviewPanel.mockImplementation(
