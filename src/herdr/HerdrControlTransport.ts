@@ -90,6 +90,7 @@ export class HerdrControlTransport implements TerminalTransport {
   private releaseTimer: TimerHandle | undefined;
   private exitEmitted = false;
   private childExited = false;
+  private closing = false;
   private closePromise: Promise<void> | undefined;
   private resolveClose: (() => void) | undefined;
 
@@ -139,6 +140,15 @@ export class HerdrControlTransport implements TerminalTransport {
     this.child.stderr.on("data", (chunk: Buffer | string) => {
       this.stderr = boundedAppend(this.stderr, chunk.toString(), MAX_DIAGNOSTIC_CHARS);
     });
+    this.child.stdin.on("error", (error) => {
+      if (isObject(error) && error.code === "EPIPE" && (this.closing || this.exitEmitted)) {
+        return;
+      }
+      this.fail(
+        "protocol-error",
+        `Failed to write Herdr command: ${this.errorMessage(error)}`,
+      );
+    });
     this.child.on("error", (error) => {
       this.fail("spawn-error", this.errorMessage(error));
     });
@@ -187,6 +197,7 @@ export class HerdrControlTransport implements TerminalTransport {
     this.closePromise = new Promise<void>((resolve) => {
       this.resolveClose = resolve;
     });
+    this.closing = true;
 
     if (this.childExited) {
       this.resolvePendingClose();

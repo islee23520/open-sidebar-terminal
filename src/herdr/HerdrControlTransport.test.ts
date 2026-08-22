@@ -300,6 +300,36 @@ describe("HerdrControlTransport", () => {
     }
   });
 
+  test("ignores stdin EPIPE after terminal closure while releasing", async () => {
+    const { child, transport, exits } = setup();
+    child.stdout.write(
+      `${JSON.stringify({ type: "terminal.closed", reason: "not found" })}\n`,
+    );
+
+    const closing = transport.close("release");
+    const error = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+    expect(() => child.stdin.emit("error", error)).not.toThrow();
+
+    child.emit("exit", 0, null);
+    await closing;
+    expect(exits).toEqual([{ reason: "pane-exited" }]);
+  });
+
+  test("reports stdin EPIPE as a protocol error while active", () => {
+    const { child, exits } = setup();
+    const error = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+
+    expect(() => child.stdin.emit("error", error)).not.toThrow();
+    expect(exits).toEqual([
+      expect.objectContaining({
+        reason: "protocol-error",
+        message: expect.stringContaining("write EPIPE"),
+      }),
+    ]);
+    expect(child.kill).toHaveBeenCalledOnce();
+    expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+  });
+
   test("guards empty input and shutdown releases then kills immediately", async () => {
     const { child, transport } = setup();
     expect(() => transport.write("")).toThrow(/non-empty/i);
