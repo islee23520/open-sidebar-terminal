@@ -101,7 +101,11 @@ export class TerminalManager implements vscode.Disposable {
     return shell;
   }
 
-  public attach(id: string, transportFactory: () => TerminalTransport): TerminalTransport {
+  public attach(
+    id: string,
+    transportFactory: () => TerminalTransport,
+    initialReplay = "",
+  ): TerminalTransport {
     const slot = this.getOrCreateSlot(id);
     const previous = slot.attached;
     if (previous) {
@@ -115,7 +119,7 @@ export class TerminalManager implements vscode.Disposable {
     const generation = slot.attachedGeneration + 1;
     slot.attachedGeneration = generation;
     slot.attached = transport;
-    slot.attachedReplay = "";
+    slot.attachedReplay = initialReplay;
     transport.onOutput(({ data, replay }) => {
       if (!this.isCurrentAttached(slot, transport, generation)) {
         return;
