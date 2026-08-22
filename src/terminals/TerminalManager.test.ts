@@ -148,4 +148,37 @@ describe("TerminalManager", () => {
     expect(data).not.toHaveBeenCalled();
     expect(exit).not.toHaveBeenCalled();
   });
+
+  describe("characterization: current one-PTY lifecycle", () => {
+    it("returns the same pty instance for an existing terminal id", () => {
+      const manager = new TerminalManager();
+
+      const first = manager.createTerminal("shell", 120, 40);
+      const second = manager.createTerminal("shell", 80, 24);
+
+      expect(first).toBe(second);
+      expect(nodePty.spawn).toHaveBeenCalledOnce();
+    });
+
+    it("drops stale onData and onExit after kill", () => {
+      const manager = new TerminalManager();
+      const data = vi.fn();
+      const exit = vi.fn();
+      manager.onData(data);
+      manager.onExit(exit);
+      const process = manager.createTerminal(
+        "shell",
+        80,
+        24,
+      ) as unknown as ptyMock.MockPtyProcess;
+
+      manager.kill("shell");
+      process.emitData("stale");
+      process.emitExit(0, 9);
+
+      expect(data).not.toHaveBeenCalled();
+      expect(exit).not.toHaveBeenCalled();
+      expect(manager.hasTerminal("shell")).toBe(false);
+    });
+  });
 });

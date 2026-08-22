@@ -8,17 +8,22 @@ import { TerminalProvider } from "./TerminalProvider";
 vi.mock("node-pty", async () => vi.importActual("../test/mocks/node-pty"));
 
 const nodePty = await vi.importActual<typeof ptyMock>("../test/mocks/node-pty");
+const extensionUri = vscode.Uri.file("/extension") as unknown as import("vscode").Uri;
 
 interface TestWebview {
   html: string;
   options: unknown;
   readonly cspSource: string;
   readonly postMessage: ReturnType<typeof vi.fn>;
-  asWebviewUri(uri: vscode.Uri): vscode.Uri;
+  asWebviewUri(uri: unknown): unknown;
   onDidReceiveMessage(listener: (message: WebviewMessage) => void): vscode.Disposable;
   send(message: WebviewMessage): void;
 }
 
+
+function lastResult<T>(results: readonly { value: T }[]) {
+  return results[results.length - 1];
+}
 function createView(): { readonly view: unknown; readonly webview: TestWebview } {
   const messageEmitter = new vscode.EventEmitter<WebviewMessage>();
   const disposeEmitter = new vscode.EventEmitter<void>();
@@ -48,7 +53,7 @@ describe("TerminalProvider", () => {
     const createSpy = vi.spyOn(manager, "createTerminal");
     const writeSpy = vi.spyOn(manager, "write");
     const resizeSpy = vi.spyOn(manager, "resize");
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
 
     provider.resolveWebviewView(view as never);
@@ -69,11 +74,11 @@ describe("TerminalProvider", () => {
 
   it("forwards PTY output and exit without pane or session metadata", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
     webview.send({ type: "ready", cols: 80, rows: 24 });
-    const process = nodePty.spawn.mock.results.at(-1)
+    const process = lastResult(nodePty.spawn.mock.results)
       ?.value as ptyMock.MockPtyProcess;
 
     process.emitData("hello");
@@ -92,7 +97,7 @@ describe("TerminalProvider", () => {
 
   it("copies drag-selected terminal text through the host clipboard", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
 
@@ -105,7 +110,7 @@ describe("TerminalProvider", () => {
 
   it("ignores empty drag selections", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
 
@@ -116,7 +121,7 @@ describe("TerminalProvider", () => {
 
   it("saves pasted images and posts their path to the terminal", async () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
     webview.send({ type: "ready", cols: 80, rows: 24 });
@@ -134,7 +139,7 @@ describe("TerminalProvider", () => {
 
   it("rejects oversized images", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
     webview.send({ type: "ready", cols: 80, rows: 24 });
@@ -152,7 +157,7 @@ describe("TerminalProvider", () => {
 
   it("rejects malformed image data", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
     webview.send({ type: "ready", cols: 80, rows: 24 });
@@ -166,7 +171,7 @@ describe("TerminalProvider", () => {
 
   it("kills the native shell when disposed", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
     webview.send({ type: "ready", cols: 80, rows: 24 });
@@ -179,7 +184,7 @@ describe("TerminalProvider", () => {
 
   it("reuses the existing shell and reacts to terminal settings", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
     webview.send({ type: "ready", cols: 80, rows: 24 });
@@ -200,7 +205,7 @@ describe("TerminalProvider", () => {
 
   it("filters unrelated PTY events and disconnects a disposed view", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
     const count = webview.postMessage.mock.calls.length;
@@ -217,7 +222,7 @@ describe("TerminalProvider", () => {
 
   it("opens an editor-group terminal surface with its own html and message bridge", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
     webview.send({ type: "ready", cols: 80, rows: 24 });
@@ -239,7 +244,7 @@ describe("TerminalProvider", () => {
       "workbench.action.closeAuxiliaryBar",
     );
 
-    const panel = vscode.window.createWebviewPanel.mock.results.at(-1)
+    const panel = lastResult(vscode.window.createWebviewPanel.mock.results)
       ?.value as vscode.MockWebviewPanel;
     expect(panel.webview.html).toContain('id="terminal-container"');
     expect(panel.webview.html).not.toBe(webview.html);
@@ -250,12 +255,12 @@ describe("TerminalProvider", () => {
     const createSpy = vi.spyOn(manager, "createTerminal");
     const writeSpy = vi.spyOn(manager, "write");
     const resizeSpy = vi.spyOn(manager, "resize");
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
 
     provider.toggleEditorLocation();
-    const panel = vscode.window.createWebviewPanel.mock.results.at(-1)
+    const panel = lastResult(vscode.window.createWebviewPanel.mock.results)
       ?.value as vscode.MockWebviewPanel;
 
     panel.webview.send({ type: "ready", cols: 120, rows: 40 });
@@ -270,7 +275,7 @@ describe("TerminalProvider", () => {
     );
     expect(panel.webview.postMessage).toHaveBeenCalledWith({ type: "focus" });
 
-    const process = nodePty.spawn.mock.results.at(-1)
+    const process = lastResult(nodePty.spawn.mock.results)
       ?.value as ptyMock.MockPtyProcess;
     process.emitData("editor-out");
 
@@ -286,7 +291,7 @@ describe("TerminalProvider", () => {
 
   it("ignores ready and resize from the inactive sidebar while editor mode is active", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
     webview.send({ type: "ready", cols: 80, rows: 24 });
@@ -303,13 +308,13 @@ describe("TerminalProvider", () => {
 
   it("returns to the sidebar surface when toggled again", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
     webview.send({ type: "ready", cols: 80, rows: 24 });
 
     provider.toggleEditorLocation();
-    const panel = vscode.window.createWebviewPanel.mock.results.at(-1)
+    const panel = lastResult(vscode.window.createWebviewPanel.mock.results)
       ?.value as vscode.MockWebviewPanel;
     expect(provider.isEditorLocation()).toBe(true);
 
@@ -325,16 +330,16 @@ describe("TerminalProvider", () => {
 
   it("returns to sidebar when the editor panel is closed by the workbench", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
 
     provider.toggleEditorLocation();
-    const panel = vscode.window.createWebviewPanel.mock.results.at(-1)
+    const panel = lastResult(vscode.window.createWebviewPanel.mock.results)
       ?.value as vscode.MockWebviewPanel;
     expect(provider.isEditorLocation()).toBe(true);
 
-    panel.dispose();
+    (panel.dispose as unknown as () => void)();
 
     expect(provider.isEditorLocation()).toBe(false);
     expect(webview.postMessage).toHaveBeenCalledWith({ type: "focus" });
@@ -345,16 +350,16 @@ describe("TerminalProvider", () => {
 
   it("replays scrollback when the editor surface becomes ready", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
     webview.send({ type: "ready", cols: 80, rows: 24 });
-    const process = nodePty.spawn.mock.results.at(-1)
+    const process = lastResult(nodePty.spawn.mock.results)
       ?.value as ptyMock.MockPtyProcess;
     process.emitData("prior output");
 
     provider.toggleEditorLocation();
-    const panel = vscode.window.createWebviewPanel.mock.results.at(-1)
+    const panel = lastResult(vscode.window.createWebviewPanel.mock.results)
       ?.value as vscode.MockWebviewPanel;
     panel.webview.postMessage.mockClear();
     panel.webview.send({ type: "ready", cols: 100, rows: 30 });
@@ -367,20 +372,20 @@ describe("TerminalProvider", () => {
 
   it("mirrors live PTY output to both surfaces so the inactive one keeps running session text", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
     webview.send({ type: "ready", cols: 80, rows: 24 });
 
     provider.toggleEditorLocation();
-    const panel = vscode.window.createWebviewPanel.mock.results.at(-1)
+    const panel = lastResult(vscode.window.createWebviewPanel.mock.results)
       ?.value as vscode.MockWebviewPanel;
     panel.webview.send({ type: "ready", cols: 100, rows: 30 });
 
     webview.postMessage.mockClear();
     panel.webview.postMessage.mockClear();
 
-    const process = nodePty.spawn.mock.results.at(-1)
+    const process = lastResult(nodePty.spawn.mock.results)
       ?.value as ptyMock.MockPtyProcess;
     process.emitData("agent still running\r\n");
 
@@ -396,7 +401,7 @@ describe("TerminalProvider", () => {
 
   it("ignores input from the inactive sidebar while editor mode is active", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
     webview.send({ type: "ready", cols: 80, rows: 24 });
@@ -411,7 +416,7 @@ describe("TerminalProvider", () => {
 
   it("reads ulw.defaultLocation as editor by default and sidebar on request", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
 
     expect(provider.getDefaultLocation()).toBe("editor");
     vscode.setConfiguration({ "ulw.defaultLocation": "sidebar" });
@@ -422,7 +427,7 @@ describe("TerminalProvider", () => {
 
   it("openAtConfiguredLocation opens the editor by default and only stays sidebar when configured", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
 
     provider.openAtConfiguredLocation();
     expect(vscode.window.createWebviewPanel).toHaveBeenCalledOnce();
@@ -438,10 +443,10 @@ describe("TerminalProvider", () => {
     const manager = new TerminalManager();
     const createSpy = vi.spyOn(manager, "createTerminal");
     const writeSpy = vi.spyOn(manager, "write");
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
 
     provider.toggleEditorLocation();
-    const panel = vscode.window.createWebviewPanel.mock.results.at(-1)
+    const panel = lastResult(vscode.window.createWebviewPanel.mock.results)
       ?.value as vscode.MockWebviewPanel;
 
     expect(panel.webview.html).toContain('id="terminal-container"');
@@ -460,16 +465,16 @@ describe("TerminalProvider", () => {
 
   it("initializes a newly mounted sidebar even while editor mode is active", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
     webview.send({ type: "ready", cols: 80, rows: 24 });
-    const process = nodePty.spawn.mock.results.at(-1)
+    const process = lastResult(nodePty.spawn.mock.results)
       ?.value as ptyMock.MockPtyProcess;
     process.emitData("history");
 
     provider.toggleEditorLocation();
-    const panel = vscode.window.createWebviewPanel.mock.results.at(-1)
+    const panel = lastResult(vscode.window.createWebviewPanel.mock.results)
       ?.value as vscode.MockWebviewPanel;
     panel.webview.send({ type: "ready", cols: 100, rows: 30 });
 
@@ -489,7 +494,7 @@ describe("TerminalProvider", () => {
 
   it("dispose suppresses the workbench restore side effect", () => {
     const manager = new TerminalManager();
-    const provider = new TerminalProvider(vscode.Uri.file("/extension"), manager);
+    const provider = new TerminalProvider(extensionUri, manager);
     const { view, webview } = createView();
     provider.resolveWebviewView(view as never);
     provider.toggleEditorLocation();
@@ -500,5 +505,134 @@ describe("TerminalProvider", () => {
     expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
       "workbench.view.extension.ulwContainer",
     );
+  });
+
+  describe("characterization: current one-PTY provider behavior", () => {
+    it("creates or resizes from ready and posts config before focus", () => {
+      const manager = new TerminalManager();
+      const createSpy = vi.spyOn(manager, "createTerminal");
+      const resizeSpy = vi.spyOn(manager, "resize");
+      const provider = new TerminalProvider(extensionUri, manager);
+      const { view, webview } = createView();
+
+      provider.resolveWebviewView(view as never);
+      webview.send({ type: "ready", cols: 90, rows: 28 });
+      webview.send({ type: "ready", cols: 100, rows: 30 });
+
+      expect(createSpy).toHaveBeenCalledWith("sidebar-shell", 90, 28);
+      expect(resizeSpy).toHaveBeenCalledWith("sidebar-shell", 100, 30);
+      expect(nodePty.spawn).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Array),
+        expect.objectContaining({ cols: 90, rows: 28 }),
+      );
+      expect(webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "config", fontSize: 14 }),
+      );
+      expect(webview.postMessage).toHaveBeenCalledWith({ type: "focus" });
+    });
+
+    it("ignores input and resize from the inactive surface", () => {
+      const manager = new TerminalManager();
+      const provider = new TerminalProvider(extensionUri, manager);
+      const { view, webview } = createView();
+      provider.resolveWebviewView(view as never);
+      webview.send({ type: "ready", cols: 80, rows: 24 });
+      const writeSpy = vi.spyOn(manager, "write");
+      const resizeSpy = vi.spyOn(manager, "resize");
+
+      provider.toggleEditorLocation();
+      writeSpy.mockClear();
+      resizeSpy.mockClear();
+      webview.send({ type: "input", data: "ghost\r" });
+      webview.send({ type: "resize", cols: 11, rows: 11 });
+
+      expect(writeSpy).not.toHaveBeenCalled();
+      expect(resizeSpy).not.toHaveBeenCalled();
+    });
+
+    it("replays scrollback to a freshly read surface, caps it, and clears on exit", () => {
+      const manager = new TerminalManager();
+      const provider = new TerminalProvider(extensionUri, manager);
+      const { view, webview } = createView();
+      provider.resolveWebviewView(view as never);
+      webview.send({ type: "ready", cols: 80, rows: 24 });
+      const process = lastResult(nodePty.spawn.mock.results)
+        ?.value as ptyMock.MockPtyProcess;
+      const large = "x".repeat(500_100);
+      process.emitData(large);
+
+      provider.toggleEditorLocation();
+      const panel = lastResult(vscode.window.createWebviewPanel.mock.results)
+        ?.value as vscode.MockWebviewPanel;
+      panel.webview.postMessage.mockClear();
+      panel.webview.send({ type: "ready", cols: 100, rows: 30 });
+
+      expect(panel.webview.postMessage).toHaveBeenCalledWith({
+        type: "output",
+        data: large.slice(-500_000),
+      });
+      expect(panel.webview.postMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: "output", data: large }),
+      );
+
+      panel.webview.postMessage.mockClear();
+      process.emitExit(0);
+      panel.webview.send({ type: "ready", cols: 100, rows: 30 });
+
+      expect(webview.postMessage).toHaveBeenCalledWith({
+        type: "exit",
+        code: 0,
+        signal: undefined,
+      });
+      expect(panel.webview.postMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: "output", data: large.slice(-1) }),
+      );
+    });
+
+    it("posts exit banner payload and resets scrollback on exit", () => {
+      const manager = new TerminalManager();
+      const provider = new TerminalProvider(extensionUri, manager);
+      const { view, webview } = createView();
+      provider.resolveWebviewView(view as never);
+      webview.send({ type: "ready", cols: 80, rows: 24 });
+      const process = lastResult(nodePty.spawn.mock.results)
+        ?.value as ptyMock.MockPtyProcess;
+      process.emitData("before-exit");
+      process.emitExit(12, 9);
+
+      expect(webview.postMessage).toHaveBeenCalledWith({
+        type: "exit",
+        code: 12,
+        signal: 9,
+      });
+
+      provider.toggleEditorLocation();
+      const panel = lastResult(vscode.window.createWebviewPanel.mock.results)
+        ?.value as vscode.MockWebviewPanel;
+      panel.webview.postMessage.mockClear();
+      panel.webview.send({ type: "ready", cols: 100, rows: 30 });
+
+      expect(panel.webview.postMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: "output", data: "before-exit" }),
+      );
+    });
+
+    it("keeps the same PTY alive across surface switching", () => {
+      const manager = new TerminalManager();
+      const createSpy = vi.spyOn(manager, "createTerminal");
+      const provider = new TerminalProvider(extensionUri, manager);
+      const { view, webview } = createView();
+      provider.resolveWebviewView(view as never);
+      webview.send({ type: "ready", cols: 80, rows: 24 });
+
+      expect(provider.terminalCount()).toBe(1);
+      provider.toggleEditorLocation();
+      expect(provider.terminalCount()).toBe(1);
+      provider.toggleEditorLocation();
+      expect(provider.terminalCount()).toBe(1);
+      expect(createSpy).toHaveBeenCalledOnce();
+      expect(nodePty.spawn).toHaveBeenCalledOnce();
+    });
   });
 });
