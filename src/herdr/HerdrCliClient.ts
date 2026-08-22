@@ -1,0 +1,235 @@
+import {
+  HerdrNotInstalledError,
+  HerdrProtocolError,
+  HerdrServerDownError,
+  HerdrUnsupportedVersionError,
+} from "./errors";
+import type {
+  HerdrAgent,
+  HerdrCommandResult,
+  HerdrCommandRunner,
+  HerdrInvocation,
+  HerdrTimers,
+} from "./types";
+
+const COMMAND_TIMEOUT_MS = 5_000;
+const MAX_AGENTS = 1_000;
+const MINIMUM_VERSION = [0, 8, 0] as const;
+const SERVER_UNREACHABLE =
+  /(?:failed|unable|cannot) to connect|connection refused|server (?:is )?(?:unavailable|not running|unreachable)/i;
+
+interface HerdrCliClientOptions {
+  readonly run: HerdrCommandRunner;
+  readonly invocation: HerdrInvocation;
+  readonly timers?: HerdrTimers;
+}
+
+interface AgentListEnvelope {
+  readonly result: {
+    readonly agents: unknown[];
+  };
+}
+
+const defaultTimers: HerdrTimers = {
+  setTimeout: (callback, timeoutMs) => setTimeout(callback, timeoutMs),
+  clearTimeout: (handle) => clearTimeout(handle),
+};
+
+export class HerdrCliClient {
+  private readonly run: HerdrCommandRunner;
+  private readonly invocation: HerdrInvocation;
+  private readonly timers: HerdrTimers;
+
+  public constructor(options: HerdrCliClientOptions) {
+    this.run = options.run;
+    this.invocation = options.invocation;
+    this.timers = options.timers ?? defaultTimers;
+  }
+
+  public async versionCheck(): Promise<{ readonly version: string }> {
+    const result = await this.execute(["--version"]);
+    this.throwForFailure(result, "version check");
+
+    const match = /(?:^|\s)(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?(?:\s|$)/.exec(
+      `${result.stdout}\n${result.stderr}`,
+    );
+    if (!match) {
+      throw new HerdrProtocolError(
+        this.invocation.displayEndpoint,
+        "the version output did not contain a semantic version",
+      );
+    }
+
+    const version = `${match[1]}.${match[2]}.${match[3]}`;
+    const parts = [Number(match[1]), Number(match[2]), Number(match[3])];
+    if (this.compareVersion(parts, MINIMUM_VERSION) < 0) {
+      throw new HerdrUnsupportedVersionError(
+        this.invocation.displayEndpoint,
+        version,
+      );
+    }
+    return { version };
+  }
+
+  public async listAgents(): Promise<readonly HerdrAgent[]> {
+    const result = await this.execute(["agent", "list"]);
+    this.throwForFailure(result, "agent list");
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(result.stdout);
+    } catch (error) {
+      throw new HerdrProtocolError(
+        this.invocation.displayEndpoint,
+        "agent list was not valid JSON",
+        error,
+      );
+    }
+
+    if (!this.isAgentListEnvelope(parsed)) {
+      throw new HerdrProtocolError(
+        this.invocation.displayEndpoint,
+        "agent list did not contain result.agents",
+      );
+    }
+    if (parsed.result.agents.length > MAX_AGENTS) {
+      throw new HerdrProtocolError(
+        this.invocation.displayEndpoint,
+        `agent list exceeded the ${MAX_AGENTS}-agent limit`,
+      );
+    }
+
+    return parsed.result.agents.map((row, index) =>
+      this.mapAgent(row, index),
+    );
+  }
+
+  private async execute(args: readonly string[]): Promise<HerdrCommandResult> {
+    const commandArgs = [...this.invocation.argsPrefix, ...args];
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutHandle = this.timers.setTimeout(() => {
+        reject(
+          new HerdrServerDownError(
+            this.invocation.displayEndpoint,
+            `command timed out after ${COMMAND_TIMEOUT_MS}ms`,
+          ),
+        );
+      }, COMMAND_TIMEOUT_MS);
+    });
+
+    try {
+      return await Promise.race([
+        this.run(
+          this.invocation.command,
+          commandArgs,
+          this.invocation.env,
+          COMMAND_TIMEOUT_MS,
+        ),
+        timeout,
+      ]);
+    } catch (error) {
+      if (error instanceof HerdrServerDownError) {
+        throw error;
+      }
+      if (this.isMissingExecutable(error)) {
+        throw new HerdrNotInstalledError(
+          this.invocation.displayEndpoint,
+          this.invocation.command,
+          error,
+        );
+      }
+      throw new HerdrServerDownError(
+        this.invocation.displayEndpoint,
+        this.errorDetail(error),
+        error,
+      );
+    } finally {
+      if (timeoutHandle !== undefined) {
+        this.timers.clearTimeout(timeoutHandle);
+      }
+    }
+  }
+
+  private throwForFailure(
+    result: HerdrCommandResult,
+    operation: string,
+  ): void {
+    if (result.code === 127) {
+      throw new HerdrNotInstalledError(
+        this.invocation.displayEndpoint,
+        this.invocation.command,
+      );
+    }
+    const output = `${result.stderr}\n${result.stdout}`.trim();
+    if (result.code !== 0 || SERVER_UNREACHABLE.test(output)) {
+      throw new HerdrServerDownError(
+        this.invocation.displayEndpoint,
+        output || `${operation} exited with code ${result.code}`,
+      );
+    }
+  }
+
+  private isAgentListEnvelope(value: unknown): value is AgentListEnvelope {
+    if (!this.isRecord(value) || !this.isRecord(value.result)) {
+      return false;
+    }
+    return Array.isArray(value.result.agents);
+  }
+
+  private mapAgent(value: unknown, index: number): HerdrAgent {
+    if (!this.isRecord(value)) {
+      throw this.invalidAgent(index);
+    }
+
+    const fields = {
+      paneId: value.pane_id,
+      terminalId: value.terminal_id,
+      agent: value.agent,
+      status: value.agent_status,
+      title: value.terminal_title_stripped,
+      cwd: value.cwd,
+      workspaceId: value.workspace_id,
+    };
+    if (Object.values(fields).some((field) => typeof field !== "string")) {
+      throw this.invalidAgent(index);
+    }
+
+    return fields as HerdrAgent;
+  }
+
+  private invalidAgent(index: number): HerdrProtocolError {
+    return new HerdrProtocolError(
+      this.invocation.displayEndpoint,
+      `agent at index ${index} was missing a required string field`,
+    );
+  }
+
+  private compareVersion(
+    left: readonly number[],
+    right: readonly number[],
+  ): number {
+    for (let index = 0; index < 3; index += 1) {
+      const difference = left[index] - right[index];
+      if (difference !== 0) {
+        return difference;
+      }
+    }
+    return 0;
+  }
+
+  private isMissingExecutable(error: unknown): boolean {
+    return (
+      this.isRecord(error) &&
+      (error.code === "ENOENT" || error.code === 127)
+    );
+  }
+
+  private errorDetail(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+  }
+}
