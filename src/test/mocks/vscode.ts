@@ -85,6 +85,22 @@ export const ViewColumn = {
   One: 1,
 } as const;
 
+export const TreeItemCollapsibleState = {
+  None: 0,
+  Collapsed: 1,
+  Expanded: 2,
+} as const;
+
+export class TreeItem {
+  public description: string | undefined;
+  public command: { command: string; title: string; arguments?: unknown[] } | undefined;
+
+  public constructor(
+    public label: string,
+    public collapsibleState: number = TreeItemCollapsibleState.None,
+  ) {}
+}
+
 export const commands = {
   registerCommand: vi.fn((commandId: string, _handler: (...args: unknown[]) => unknown) => {
     void commandId;
@@ -146,6 +162,7 @@ export const window = {
   showWarningMessage: vi.fn(async (_message: string, ..._items: string[]) => undefined as string | undefined),
   showInformationMessage: vi.fn(async (_message: string, ..._items: string[]) => undefined as string | undefined),
   registerWebviewViewProvider: vi.fn(() => new Disposable()),
+  registerTreeDataProvider: vi.fn(() => new Disposable()),
   createWebviewPanel: vi.fn(
     (
       _viewType: string,
@@ -180,6 +197,7 @@ export function resetMocks(): void {
   window.showInformationMessage.mockReset();
   window.showInformationMessage.mockResolvedValue(undefined);
   window.registerWebviewViewProvider.mockClear();
+  window.registerTreeDataProvider.mockClear();
   window.createWebviewPanel.mockClear();
   window.createWebviewPanel.mockImplementation(
     (
@@ -201,6 +219,8 @@ export default {
   Disposable,
   EventEmitter,
   Uri,
+  TreeItem,
+  TreeItemCollapsibleState,
   workspace,
   env,
   window,

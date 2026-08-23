@@ -46,3 +46,10 @@ export interface HerdrAgent {
   readonly cwd: string;
   readonly workspaceId: string;
 }
+
+export interface HerdrSpace {
+  readonly workspaceId: string;
+  readonly label: string;
+  readonly status: string;
+  readonly paneCount: number;
+}

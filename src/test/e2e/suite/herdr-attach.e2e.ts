@@ -30,6 +30,17 @@ interface UlwExtensionApi {
   detachHerdr(): Promise<void>;
   resizeTerminal(cols: number, rows: number): void;
   getSurfaceSnapshot(): SurfaceSnapshot;
+  getExplorerSnapshot(): {
+    readonly spaces: readonly {
+      readonly workspaceId: string;
+      readonly label: string;
+    }[];
+    readonly agents: readonly {
+      readonly terminalId: string;
+      readonly workspaceId: string;
+    }[];
+  };
+  refreshExplorer(): Promise<void>;
 }
 
 interface ScratchWorkspace {
@@ -253,7 +264,7 @@ suite("Live Herdr terminal attach", () => {
       "pane",
       "run",
       rootPane.pane_id,
-      "printf 'ULW_E2E_READY'; exec /bin/sh",
+      "printf 'ULW_E2E_READY\n'; exec /bin/sh",
     ]);
     await runHerdr([
       "pane",
@@ -262,7 +273,7 @@ suite("Live Herdr terminal attach", () => {
       "--match",
       "ULW_E2E_READY",
       "--source",
-      "recent-unwrapped",
+      "visible",
       "--lines",
       "50",
       "--timeout",
@@ -318,6 +329,39 @@ suite("Live Herdr terminal attach", () => {
         );
     await vscode.commands.executeCommand("workbench.view.extension.ulwContainer");
     await shellStarted;
+    await api.refreshExplorer();
+    const workspace = scratch;
+    const explorer = api.getExplorerSnapshot();
+    assert.ok(
+      explorer.spaces.some((space) => space.workspaceId === workspace.workspaceId),
+      `explorer spaces should include ${workspace.workspaceId}`,
+    );
+    const treeAttached = waitForEvent(
+      api.onSourceState,
+      (state) => state.phase === "attached",
+      "tree click attached",
+    );
+    const treeDetached = waitForEvent(
+      api.onSourceState,
+      (state) => state.phase === "shell",
+      "sourceState shell after tree attach",
+    );
+    await vscode.commands.executeCommand("ulw.herdr.openAgent", {
+      kind: "agent",
+      agent: {
+        paneId: workspace.rootPaneId,
+        terminalId: workspace.rootTerminalId,
+        agent: "shell",
+        status: "idle",
+        title: "ulw-e2e",
+        cwd: workspace.tempDir,
+        workspaceId: workspace.workspaceId,
+      },
+    });
+    const treeAttachedState = await treeAttached;
+    assert.strictEqual(treeAttachedState.source, "herdr");
+    await api.detachHerdr();
+    await treeDetached;
 
     const shellPrimed = waitForOutput(api.onTerminalData, "ULW_E2E_SHELL");
     api.writeToTerminal("printf 'ULW_E2E_SHELL\\n'\r");

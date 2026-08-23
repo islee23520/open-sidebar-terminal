@@ -226,4 +226,53 @@ describe("HerdrCliClient", () => {
       HerdrProtocolError,
     );
   });
+
+  test("maps workspace list rows for the Spaces tree", async () => {
+    const run = vi.fn<HerdrCommandRunner>().mockImplementation(() =>
+      result(
+        JSON.stringify({
+          id: "cli:workspace:list",
+          result: {
+            type: "workspace_list",
+            workspaces: [
+              {
+                workspace_id: "w46",
+                label: "ulwcode",
+                agent_status: "working",
+                pane_count: 1,
+                tab_count: 1,
+                focused: true,
+              },
+            ],
+          },
+        }),
+      ),
+    );
+    const client = new HerdrCliClient({ run, invocation });
+
+    await expect(client.listWorkspaces()).resolves.toEqual([
+      {
+        workspaceId: "w46",
+        label: "ulwcode",
+        status: "working",
+        paneCount: 1,
+      },
+    ]);
+    expect(run).toHaveBeenCalledWith(
+      "/opt/herdr",
+      ["--session", "team", "workspace", "list"],
+      { PATH: "/bin" },
+      5_000,
+    );
+  });
+
+  test("rejects a workspace list without result.workspaces", async () => {
+    const client = new HerdrCliClient({
+      invocation,
+      run: () => result(JSON.stringify({ id: 1, result: {} })),
+    });
+    await expect(client.listWorkspaces()).rejects.toBeInstanceOf(
+      HerdrProtocolError,
+    );
+  });
 });

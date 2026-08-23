@@ -34,21 +34,34 @@ describe("minimal sidebar terminal topology", () => {
 
     expect(manifest.activationEvents).toEqual([
       "onView:ulw",
+      "onView:ulw.herdr.spaces",
+      "onView:ulw.herdr.agents",
       "onCommand:ulw.toggleEditorLocation",
       "onCommand:ulw.sendSelectionToTerminal",
       "onCommand:ulw.sendFileToTerminal",
       "onCommand:ulw.attachHerdrSession",
       "onCommand:ulw.detachHerdrSession",
+      "onCommand:ulw.herdr.openAgent",
+      "onCommand:ulw.herdr.openSpace",
+      "onCommand:ulw.herdr.refreshExplorer",
       "onStartupFinished",
     ]);
-    expect(Object.keys(manifest.contributes.viewsContainers)).toEqual([
+    expect(Object.keys(manifest.contributes.viewsContainers).sort()).toEqual([
+      "activitybar",
       "secondarySidebar",
     ]);
     expect(manifest.contributes.viewsContainers.secondarySidebar).toEqual([
       expect.objectContaining({ id: "ulwContainer" }),
     ]);
+    expect(manifest.contributes.viewsContainers.activitybar).toEqual([
+      expect.objectContaining({ id: "ulwHerdr" }),
+    ]);
     expect(manifest.contributes.views.ulwContainer).toEqual([
       expect.objectContaining({ id: "ulw", type: "webview" }),
+    ]);
+    expect(manifest.contributes.views["ulwHerdr"]).toEqual([
+      expect.objectContaining({ id: "ulw.herdr.spaces" }),
+      expect.objectContaining({ id: "ulw.herdr.agents" }),
     ]);
   });
 
@@ -64,6 +77,9 @@ describe("minimal sidebar terminal topology", () => {
     expect(commandIds).toEqual([
       "ulw.attachHerdrSession",
       "ulw.detachHerdrSession",
+      "ulw.herdr.openAgent",
+      "ulw.herdr.openSpace",
+      "ulw.herdr.refreshExplorer",
       "ulw.sendFileToTerminal",
       "ulw.sendSelectionToTerminal",
       "ulw.toggleEditorLocation",
@@ -78,13 +94,20 @@ describe("minimal sidebar terminal topology", () => {
   it("surfaces the location toggle on sidebar and editor title bars", () => {
     const menus = readManifest().contributes.menus ?? {};
 
-    expect(menus["view/title"]).toEqual([
-      expect.objectContaining({
-        command: "ulw.toggleEditorLocation",
-        when: "view == ulw",
-        group: "navigation",
-      }),
-    ]);
+    expect(menus["view/title"]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          command: "ulw.toggleEditorLocation",
+          when: "view == ulw",
+          group: "navigation",
+        }),
+        expect.objectContaining({
+          command: "ulw.herdr.refreshExplorer",
+          when: "view == ulw.herdr.spaces || view == ulw.herdr.agents",
+          group: "navigation",
+        }),
+      ]),
+    );
     expect(menus["editor/title"]).toEqual([
       expect.objectContaining({
         command: "ulw.toggleEditorLocation",

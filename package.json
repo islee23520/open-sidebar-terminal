@@ -25,6 +25,13 @@
   "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ulwHerdr",
+          "title": "Herdr",
+          "icon": "resources/ulwcode-sidebar.svg"
+        }
+      ],
       "secondarySidebar": [
         {
           "id": "ulwContainer",
@@ -40,6 +47,16 @@
           "name": "Terminal",
           "type": "webview",
           "icon": "resources/ulwcode-sidebar.svg"
+        }
+      ],
+      "ulwHerdr": [
+        {
+          "id": "ulw.herdr.spaces",
+          "name": "Spaces"
+        },
+        {
+          "id": "ulw.herdr.agents",
+          "name": "Agents"
         }
       ]
     },
@@ -70,6 +87,22 @@
         "command": "ulw.detachHerdrSession",
         "title": "ULW: Detach Herdr Session",
         "category": "ULW"
+      },
+      {
+        "command": "ulw.herdr.openAgent",
+        "title": "ULW: Attach Herdr Agent",
+        "category": "ULW"
+      },
+      {
+        "command": "ulw.herdr.openSpace",
+        "title": "ULW: Reveal Herdr Space",
+        "category": "ULW"
+      },
+      {
+        "command": "ulw.herdr.refreshExplorer",
+        "title": "ULW: Refresh Herdr Explorer",
+        "category": "ULW",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -89,6 +122,11 @@
         {
           "command": "ulw.toggleEditorLocation",
           "when": "view == ulw",
+          "group": "navigation"
+        },
+        {
+          "command": "ulw.herdr.refreshExplorer",
+          "when": "view == ulw.herdr.spaces || view == ulw.herdr.agents",
           "group": "navigation"
         }
       ],
@@ -245,11 +283,16 @@
   },
   "activationEvents": [
     "onView:ulw",
+    "onView:ulw.herdr.spaces",
+    "onView:ulw.herdr.agents",
     "onCommand:ulw.toggleEditorLocation",
     "onCommand:ulw.sendSelectionToTerminal",
     "onCommand:ulw.sendFileToTerminal",
     "onCommand:ulw.attachHerdrSession",
     "onCommand:ulw.detachHerdrSession",
+    "onCommand:ulw.herdr.openAgent",
+    "onCommand:ulw.herdr.openSpace",
+    "onCommand:ulw.herdr.refreshExplorer",
     "onStartupFinished"
   ]
 }

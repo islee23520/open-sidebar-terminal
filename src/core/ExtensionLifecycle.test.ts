@@ -46,6 +46,12 @@ function agent(overrides: Partial<HerdrAgent> = {}): HerdrAgent {
 
 function createHerdrHarness(options: {
   agents?: readonly HerdrAgent[];
+  workspaces?: readonly {
+    readonly workspaceId: string;
+    readonly label: string;
+    readonly status: string;
+    readonly paneCount: number;
+  }[];
   versionError?: Error;
   listError?: Error;
   attachError?: Error;
@@ -79,6 +85,7 @@ function createHerdrHarness(options: {
       }
       return options.agents ?? [];
     }),
+    listWorkspaces: vi.fn(async () => options.workspaces ?? []),
   };
   const lifecycle = new ExtensionLifecycle({
     createCliClient: () => client,
@@ -594,6 +601,7 @@ describe("ExtensionLifecycle", () => {
         return {
           versionCheck: async () => ({ version: "0.8.2" }),
           listAgents: async () => [],
+          listWorkspaces: async () => [],
         };
       },
       createControlTransport,
@@ -643,6 +651,7 @@ describe("ExtensionLifecycle", () => {
         return {
           versionCheck: async () => ({ version: "0.8.2" }),
           listAgents: async () => [],
+          listWorkspaces: async () => [],
         };
       },
       createControlTransport: (options) => {
@@ -682,5 +691,64 @@ describe("ExtensionLifecycle", () => {
     attached.lifecycle.activate(createContext() as never);
     await commandHandler<() => Promise<void>>("ulw.detachHerdrSession")();
     expect(attached.controller.detach).toHaveBeenCalledOnce();
+  });
+
+  it("registers Spaces and Agents trees and attaches from an agent node", async () => {
+    vscode.resetMocks();
+    const target = agent();
+    const { lifecycle, controller } = createHerdrHarness({
+      agents: [target],
+      workspaces: [
+        {
+          workspaceId: "workspace-1",
+          label: "one",
+          status: "working",
+          paneCount: 1,
+        },
+      ],
+    });
+    lifecycle.activate(createContext() as never);
+
+    expect(vscode.window.registerTreeDataProvider).toHaveBeenCalledWith(
+      "ulw.herdr.spaces",
+      expect.anything(),
+    );
+    expect(vscode.window.registerTreeDataProvider).toHaveBeenCalledWith(
+      "ulw.herdr.agents",
+      expect.anything(),
+    );
+    await commandHandler<() => Promise<void>>("ulw.herdr.refreshExplorer")();
+
+    await commandHandler<(node: {
+      kind: "agent";
+      agent: HerdrAgent;
+    }) => Promise<void>>("ulw.herdr.openAgent")({
+      kind: "agent",
+      agent: target,
+    });
+    expect(controller.attach).toHaveBeenCalledWith(
+      { terminalId: "terminal-1", label: "Agent one" },
+      { cols: 80, rows: 24 },
+    );
+    expect(vscode.window.showQuickPick).not.toHaveBeenCalled();
+
+    await commandHandler<(node: {
+      kind: "space";
+      space: {
+        readonly workspaceId: string;
+        readonly label: string;
+        readonly status: string;
+        readonly paneCount: number;
+      };
+    }) => Promise<void>>("ulw.herdr.openSpace")({
+      kind: "space",
+      space: {
+        workspaceId: "workspace-1",
+        label: "one",
+        status: "working",
+        paneCount: 1,
+      },
+    });
+    expect(controller.attach).toHaveBeenCalledTimes(1);
   });
 });

@@ -16,9 +16,9 @@ Run **ULW: Toggle Terminal Location** (`ulw.toggleEditorLocation`) to move the s
 
 ## Attach to a running Herdr agent
 
-Use **ULW: Attach Herdr Session** (`ulw.attachHerdrSession`) to open a QuickPick of live Herdr agents, then choose the session to take over.
+Use **ULW: Attach Herdr Session** (`ulw.attachHerdrSession`) to open a QuickPick of live Herdr agents, then choose the session to take over. The Activity Bar **Herdr** view lists the same live **Spaces** (`ulw.herdr.spaces`) and **Agents** (`ulw.herdr.agents`); clicking an agent runs `ulw.herdr.openAgent` and attaches the existing terminal without a QuickPick. Clicking a space (`ulw.herdr.openSpace`) only identifies that workspace — it does not switch VS Code windows or start an agent. Refresh with `ulw.herdr.refreshExplorer`.
 
-- The picker is populated from the Herdr CLI `agent list` output, and ULW warns when takeover will replace other direct Herdr clients.
+- The picker and trees are populated from the Herdr CLI `agent list` / `workspace list` output, and ULW warns when takeover will replace other direct Herdr clients.
 - Taking control is not auto-restored to those other clients; ULW owns the session only while attached.
 - Any attach failure or external closure restores the local shell automatically.
 
@@ -35,6 +35,9 @@ The terminal automatically inherits the active VS Code terminal palette, includi
 | `ulw.sendFileToTerminal` | Send an explorer file path to the terminal |
 | `ulw.attachHerdrSession` | Attach to a running Herdr agent |
 | `ulw.detachHerdrSession` | Detach from a running Herdr agent |
+| `ulw.herdr.openAgent` | Attach the selected Activity Bar agent |
+| `ulw.herdr.openSpace` | Reveal a Space in the tree (no window switch) |
+| `ulw.herdr.refreshExplorer` | Refresh Spaces and Agents lists |
 
 ## Settings
 

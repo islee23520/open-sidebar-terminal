@@ -38,11 +38,21 @@ function getArgs(argv) {
 }
 
 function isHerdrCommand(key) {
-  return key === 'ulw.attachHerdrSession' || key === 'ulw.detachHerdrSession';
+  return (
+    key === 'ulw.attachHerdrSession' ||
+    key === 'ulw.detachHerdrSession' ||
+    key === 'ulw.herdr.openAgent' ||
+    key === 'ulw.herdr.openSpace' ||
+    key === 'ulw.herdr.refreshExplorer'
+  );
 }
 
 function isHerdrSetting(key) {
-  return key.startsWith('ulw.herdr.');
+  return (
+    key === 'ulw.herdr.executablePath' ||
+    key === 'ulw.herdr.socketPath' ||
+    key === 'ulw.herdr.session'
+  );
 }
 
 function collectManifestContracts(pkg) {
@@ -82,7 +92,7 @@ function collectDocumentedIds(markdown) {
   while ((match = commandRe.exec(cleaned))) {
     ids.add(match[1]);
   }
-  return [...ids].filter((id) => isHerdrCommand(id) || isHerdrSetting(id) || id.startsWith('ulw.herd'));
+  return [...ids].filter((id) => isHerdrCommand(id) || isHerdrSetting(id));
 }
 
 function uniqueSorted(values) {

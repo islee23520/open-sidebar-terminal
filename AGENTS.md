@@ -17,10 +17,11 @@ src/
 │   ├── TerminalTransport.ts        # transport seam for shell and Herdr bridge
 │   └── LocalShellTransport.ts      # local shell transport adapter
 ├── herdr/
-│   ├── HerdrCliClient.ts           # CLI discovery and agent listing
+│   ├── HerdrCliClient.ts           # CLI discovery, agent listing, workspace listing
 │   ├── HerdrInvocationResolver.ts  # shared Herdr command/env resolver
 │   ├── HerdrControlTransport.ts    # official Herdr control bridge child
 │   ├── HerdrAttachController.ts    # attach/detach lifecycle state machine
+│   ├── HerdrExplorer.ts            # Activity Bar Spaces/Agents trees
 │   ├── types.ts                    # Herdr data types
 │   └── errors.ts                   # Herdr typed errors
 ├── webview/
@@ -40,7 +41,7 @@ editor:  ulw.defaultLocation=editor (default) | ulw.toggleEditorLocation -> crea
   -> active surface posts `ready`
   -> TerminalManager creates or resizes `sidebar-shell`
   -> scrollback replay when switching to a fresh xterm
-  -> attach flow: command palette -> CLI discovery (agent list) -> control bridge spawn (--takeover) -> first-full-frame atomic cutover -> reset + badge
+  -> attach flow: command palette QuickPick or Activity Bar agent click -> CLI discovery (agent list) -> control bridge spawn (--takeover) -> first-full-frame atomic cutover -> reset + badge
   -> detach/external closure -> shell restore
   -> node-pty data/exit events post to surfaces
   -> active surface input/resize events write/resize the active source only
@@ -58,9 +59,9 @@ editor:  ulw.defaultLocation=editor (default) | ulw.toggleEditorLocation -> crea
 ## CONVENTIONS
 
 - Activate for the sidebar view, contributed commands, and startup (so `ulw.defaultLocation=editor` can open an editor tab).
-- Keep contributed commands limited to location toggle, send-to-terminal helpers, and Herdr attach/detach; no keybindings.
+- Keep contributed commands limited to location toggle, send-to-terminal helpers, Herdr attach/detach, and the read-only Spaces/Agents explorer; no keybindings.
 - Keep `node-pty` as the only runtime dependency. xterm and the fit addon are build-time dependencies bundled into `webview.js`.
-- Herdr attach is allowed only through one official CLI bridge child using builtin `child_process`; no raw socket client, no Herdr workspace/tab/pane/agent management UI, no tree/dashboard, no auto-start/reconnect/reattach.
+- Herdr attach is allowed only through one official CLI bridge child using builtin `child_process`; no raw socket client, no agent start/rename/window-switch, no auto-start/reconnect/reattach. A read-only Activity Bar Spaces/Agents tree may list live workspaces and attach the existing single PTY to a clicked agent.
 - One editor panel max for the shared shell; never spawn a second PTY for editor mode.
 - Honor `ulw.defaultLocation` (`editor` default | `sidebar`); toggle always overrides the current surface.
 - Use project scripts for verification.

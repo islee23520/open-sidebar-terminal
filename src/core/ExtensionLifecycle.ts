@@ -19,12 +19,21 @@ import {
   type HerdrControlTransportOptions,
 } from "../herdr/HerdrControlTransport";
 import { HerdrInvocationResolver } from "../herdr/HerdrInvocationResolver";
+import {
+  agentAttachLabel,
+  HerdrAgentsTreeProvider,
+  HerdrSnapshotStore,
+  HerdrSpacesTreeProvider,
+  type HerdrAgentNode,
+  type HerdrSpaceNode,
+} from "../herdr/HerdrExplorer";
 import type {
   HerdrAgent,
   HerdrCommandRunner,
   HerdrInvocation,
   HerdrInvocationInput,
   HerdrPlatform,
+  HerdrSpace,
 } from "../herdr/types";
 import { TerminalProvider } from "../providers/TerminalProvider";
 import type { TerminalTransport } from "../terminals/TerminalTransport";
@@ -42,6 +51,7 @@ function shellQuote(value: string): string {
 interface HerdrCli {
   versionCheck(): Promise<{ readonly version: string }>;
   listAgents(): Promise<readonly HerdrAgent[]>;
+  listWorkspaces(): Promise<readonly HerdrSpace[]>;
 }
 
 interface ExtensionLifecycleOptions {
@@ -78,11 +88,17 @@ export interface UlwExtensionApi {
     readonly sourceState: SourceState;
     readonly renderedText: string;
   };
+  getExplorerSnapshot(): {
+    readonly spaces: readonly HerdrSpace[];
+    readonly agents: readonly HerdrAgent[];
+  };
+  refreshExplorer(): Promise<void>;
 }
 
 export class ExtensionLifecycle implements vscode.Disposable {
   private terminalManager: TerminalManager | undefined;
   private provider: TerminalProvider | undefined;
+  private explorerStore: HerdrSnapshotStore | undefined;
   private readonly disposables: vscode.Disposable[] = [];
 
   public constructor(private readonly options: ExtensionLifecycleOptions = {}) {}
@@ -105,6 +121,8 @@ export class ExtensionLifecycle implements vscode.Disposable {
       this.options.createAttachController ??
       ((controllerOptions: HerdrAttachControllerOptions) =>
         new HerdrAttachController(controllerOptions));
+    const explorerStore = new HerdrSnapshotStore(client);
+    this.explorerStore = explorerStore;
     const attachController = createAttachController({
       manager: terminalManager,
       terminalId: TERMINAL_ID,
@@ -175,6 +193,36 @@ export class ExtensionLifecycle implements vscode.Disposable {
         }
         await attachController.detach();
       }),
+      vscode.window.registerTreeDataProvider(
+        "ulw.herdr.spaces",
+        new HerdrSpacesTreeProvider(explorerStore),
+      ),
+      vscode.window.registerTreeDataProvider(
+        "ulw.herdr.agents",
+        new HerdrAgentsTreeProvider(explorerStore),
+      ),
+      vscode.commands.registerCommand(
+        "ulw.herdr.openAgent",
+        async (node: HerdrAgentNode) => {
+          await this.attachSelected(attachController, {
+            label: agentAttachLabel(node.agent),
+            agent: node.agent,
+          });
+        },
+      ),
+      vscode.commands.registerCommand(
+        "ulw.herdr.openSpace",
+        async (_node: HerdrSpaceNode) => undefined,
+      ),
+      vscode.commands.registerCommand("ulw.herdr.refreshExplorer", async () => {
+        try {
+          await explorerStore.refresh();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          await vscode.window.showWarningMessage(message);
+        }
+      }),
+      explorerStore,
     );
     context.subscriptions.push(this);
     provider.openAtConfiguredLocation();
@@ -199,6 +247,11 @@ export class ExtensionLifecycle implements vscode.Disposable {
           terminalManager.replay(TERMINAL_ID),
         ),
       }),
+      getExplorerSnapshot: () => ({
+        spaces: explorerStore.spaces(),
+        agents: explorerStore.agents(),
+      }),
+      refreshExplorer: () => explorerStore.refresh(),
     };
   }
 
@@ -212,6 +265,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
     }
     this.provider = undefined;
     this.terminalManager = undefined;
+    this.explorerStore = undefined;
   }
 
   private resolveHerdrInvocation(): HerdrInvocation {
