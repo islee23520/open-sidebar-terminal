@@ -58,17 +58,28 @@ function createHerdrHarness(options: {
   herdrEnabled?: boolean;
   phase?: "shell" | "attaching" | "attached" | "detaching" | "error";
 } = {}) {
+  vscode.workspace.workspaceFolders = [{ uri: vscode.Uri.file("/workspace/one") }];
   vscode.setConfiguration({
     "ulw.herdr.enabled": options.herdrEnabled ?? true,
   });
   const sourceStateEmitter = new vscode.EventEmitter<never>();
+  const createdControllers: Array<{
+    sourceState: { source: string; phase: string };
+    onSourceState: typeof sourceStateEmitter.event;
+    attach: ReturnType<typeof vi.fn>;
+    detach: ReturnType<typeof vi.fn>;
+    dispose: ReturnType<typeof vi.fn>;
+  }> = [];
   const controller = {
-    sourceState: {
-      source: options.phase === "shell" || options.phase === undefined ? "shell" : "herdr",
-      phase: options.phase ?? "shell",
+    get sourceState() {
+      const latest = createdControllers[createdControllers.length - 1];
+      return latest?.sourceState ?? {
+        source: options.phase === "shell" || options.phase === undefined ? "shell" : "herdr",
+        phase: options.phase ?? "shell",
+      };
     },
     onSourceState: sourceStateEmitter.event,
-    attach: vi.fn(async () => {
+    attach: vi.fn(async (_target?: unknown, _dimensions?: unknown) => {
       if (options.attachError) {
         throw options.attachError;
       }
@@ -93,7 +104,26 @@ function createHerdrHarness(options: {
   };
   const lifecycle = new ExtensionLifecycle({
     createCliClient: () => client,
-    createAttachController: () => controller as never,
+    createAttachController: () => {
+      const next = {
+        sourceState: {
+          source: options.phase === "shell" || options.phase === undefined ? "shell" : "herdr",
+          phase: options.phase ?? "shell",
+        },
+        onSourceState: sourceStateEmitter.event,
+        attach: vi.fn(async (target: unknown, dimensions: unknown) => {
+          await controller.attach(target, dimensions);
+        }),
+        detach: vi.fn(async () => {
+          await controller.detach();
+        }),
+        dispose: vi.fn(() => {
+          controller.dispose();
+        }),
+      };
+      createdControllers.push(next);
+      return next as never;
+    },
     createControlTransport: () => ({}) as TerminalTransport,
   });
   return { lifecycle, client, controller };
@@ -389,18 +419,7 @@ describe("ExtensionLifecycle", () => {
     expect(controller.detach).not.toHaveBeenCalled();
   });
 
-  it("reports busy attach attempts before discovery", async () => {
-    vscode.resetMocks();
-    const { lifecycle, client } = createHerdrHarness({ phase: "attached" });
-    lifecycle.activate(createContext() as never);
-
-    await commandHandler<() => Promise<void>>("ulw.attachHerdrSession")();
-
-    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
-      "Already attached to a Herdr session",
-    );
-    expect(client.versionCheck).not.toHaveBeenCalled();
-
+  it("reports busy attach attempts for the selected agent", async () => {
     vscode.resetMocks();
     const busy = createHerdrHarness({
       agents: [agent()],
@@ -538,10 +557,14 @@ describe("ExtensionLifecycle", () => {
       {
         name: "busy",
         run: async () => {
-          const { lifecycle, client, controller } = createHerdrHarness({
-            phase: "attached",
+          const { lifecycle, controller } = createHerdrHarness({
+            agents: [agent()],
+            attachError: new HerdrAttachBusyError(),
           });
           lifecycle.activate(createContext() as never);
+          vscode.window.showQuickPick.mockImplementation(
+            async (items: readonly unknown[]) => items[0],
+          );
 
           await commandHandler<() => Promise<void>>(
             "ulw.attachHerdrSession",
@@ -550,8 +573,7 @@ describe("ExtensionLifecycle", () => {
           expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
             "Already attached to a Herdr session",
           );
-          expect(client.versionCheck).not.toHaveBeenCalled();
-          expect(controller.detach).not.toHaveBeenCalled();
+          expect(controller.attach).toHaveBeenCalledOnce();
         },
       },
     ];
@@ -582,6 +604,7 @@ describe("ExtensionLifecycle", () => {
   it("passes explicit settings through the resolver with a stripped environment and shares invocation with the bridge", async () => {
     vscode.resetMocks();
     vscode.setConfiguration({
+      "ulw.herdr.enabled": true,
       "ulw.herdr.executablePath": "/Applications/Herdr/bin/herdr",
       "ulw.herdr.socketPath": "/private/tmp/herdr.sock",
       "ulw.herdr.session": "",
@@ -605,20 +628,18 @@ describe("ExtensionLifecycle", () => {
         discoveryInvocation = invocation;
         return {
           versionCheck: async () => ({ version: "0.8.2" }),
-          listAgents: async () => [],
+          listAgents: async () => [agent({ terminalId: "terminal-explicit" })],
           listWorkspaces: async () => [],
         };
       },
       createControlTransport,
       createAttachController: (options) => {
-        options.transportFactory(
-          { terminalId: "terminal-explicit" },
-          { cols: 80, rows: 24 },
-        );
         return {
           sourceState: { source: "shell", phase: "shell" },
           onSourceState: sourceStateEmitter.event,
-          attach: vi.fn(),
+          attach: vi.fn(async (target: { terminalId: string }) => {
+            options.transportFactory(target, { cols: 80, rows: 24 });
+          }),
           detach: vi.fn(),
           dispose: vi.fn(),
         } as never;
@@ -626,6 +647,8 @@ describe("ExtensionLifecycle", () => {
     });
 
     lifecycle.activate(createContext() as never);
+    vscode.window.showQuickPick.mockImplementation(async (items: readonly unknown[]) => items[0]);
+    await commandHandler<() => Promise<void>>("ulw.attachHerdrSession")();
 
     expect(resolveInvocation).toHaveBeenCalledWith({
       executablePath: "/Applications/Herdr/bin/herdr",
@@ -644,9 +667,12 @@ describe("ExtensionLifecycle", () => {
     expect(bridgeInvocation).toBe(discoveryInvocation);
   });
 
-  it("places a named session in both discovery and bridge invocation", () => {
+  it("places a named session in both discovery and bridge invocation", async () => {
     vscode.resetMocks();
-    vscode.setConfiguration({ "ulw.herdr.session": "team" });
+    vscode.setConfiguration({
+      "ulw.herdr.enabled": true,
+      "ulw.herdr.session": "team",
+    });
     let discoveryInvocation: HerdrInvocation | undefined;
     let bridgeInvocation: HerdrInvocation | undefined;
     const sourceStateEmitter = new vscode.EventEmitter<never>();
@@ -655,7 +681,7 @@ describe("ExtensionLifecycle", () => {
         discoveryInvocation = invocation;
         return {
           versionCheck: async () => ({ version: "0.8.2" }),
-          listAgents: async () => [],
+          listAgents: async () => [agent()],
           listWorkspaces: async () => [],
         };
       },
@@ -664,11 +690,12 @@ describe("ExtensionLifecycle", () => {
         return {} as TerminalTransport;
       },
       createAttachController: (options) => {
-        options.transportFactory({ terminalId: "terminal-1" }, { cols: 80, rows: 24 });
         return {
           sourceState: { source: "shell", phase: "shell" },
           onSourceState: sourceStateEmitter.event,
-          attach: vi.fn(),
+          attach: vi.fn(async (target: { terminalId: string }) => {
+            options.transportFactory(target, { cols: 80, rows: 24 });
+          }),
           detach: vi.fn(),
           dispose: vi.fn(),
         } as never;
@@ -676,6 +703,8 @@ describe("ExtensionLifecycle", () => {
     });
 
     lifecycle.activate(createContext() as never);
+    vscode.window.showQuickPick.mockImplementation(async (items: readonly unknown[]) => items[0]);
+    await commandHandler<() => Promise<void>>("ulw.attachHerdrSession")();
 
     expect(discoveryInvocation?.argsPrefix).toEqual(["--session", "team"]);
     expect(bridgeInvocation?.argsPrefix).toEqual(["--session", "team"]);
@@ -694,6 +723,9 @@ describe("ExtensionLifecycle", () => {
     vscode.resetMocks();
     const attached = createHerdrHarness({ phase: "attached" });
     attached.lifecycle.activate(createContext() as never);
+    await commandHandler<(node: { kind: "agent"; agent: HerdrAgent }) => Promise<void>>(
+      "ulw.herdr.openAgent",
+    )({ kind: "agent", agent: agent() });
     await commandHandler<() => Promise<void>>("ulw.detachHerdrSession")();
     expect(attached.controller.detach).toHaveBeenCalledOnce();
   });
@@ -776,6 +808,12 @@ describe("ExtensionLifecycle", () => {
     expect(controller.attach).toHaveBeenCalledWith(
       { terminalId: "terminal-1", label: "Agent one" },
       { cols: 80, rows: 24 },
+    );
+    expect(vscode.window.createWebviewPanel).toHaveBeenCalledWith(
+      "ulw.terminalEditor",
+      "Agent one",
+      vscode.ViewColumn.Active,
+      expect.objectContaining({ enableScripts: true }),
     );
     expect(vscode.window.showQuickPick).not.toHaveBeenCalled();
 
@@ -861,5 +899,41 @@ describe("ExtensionLifecycle", () => {
       (call) => call[0] === "vscode.openFolder",
     );
     expect(folderOpens).toHaveLength(2);
+  });
+
+  it("opens each same-space agent in its own editor tab and skips the sidebar shell", async () => {
+    vscode.resetMocks();
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    vscode.workspace.workspaceFolders = [{ uri: vscode.Uri.file("/workspace/one") }];
+    const first = agent();
+    const second = agent({
+      paneId: "pane-2",
+      terminalId: "terminal-2",
+      title: "Agent two",
+    });
+    const { lifecycle } = createHerdrHarness({
+      agents: [first, second],
+    });
+    lifecycle.activate(createContext() as never);
+
+    expect(vscode.window.createWebviewPanel).not.toHaveBeenCalled();
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+      "workbench.action.closeAuxiliaryBar",
+    );
+
+    const open = commandHandler<(node: {
+      kind: "agent";
+      agent: HerdrAgent;
+    }) => Promise<void>>("ulw.herdr.openAgent");
+    await open({ kind: "agent", agent: first });
+    await open({ kind: "agent", agent: second });
+    await open({ kind: "agent", agent: first });
+
+    const titles = vscode.window.createWebviewPanel.mock.calls.map((call) => call[1]);
+    expect(titles).toEqual(["Agent one", "Agent two"]);
+    const firstPanel = vscode.window.createWebviewPanel.mock.results[0]?.value as {
+      reveal: ReturnType<typeof vi.fn>;
+    };
+    expect(firstPanel.reveal).toHaveBeenCalled();
   });
 });

@@ -175,13 +175,14 @@ export class TerminalManager implements vscode.Disposable {
   }
 
   public hasTerminal(id: string): boolean {
-    return this.slots.get(id)?.localShell !== undefined;
+    const slot = this.slots.get(id);
+    return slot?.attached !== undefined || slot?.localShell !== undefined;
   }
 
   public terminalCount(): number {
     let count = 0;
     for (const slot of this.slots.values()) {
-      if (slot.localShell) {
+      if (slot.localShell || slot.attached) {
         count += 1;
       }
     }

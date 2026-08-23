@@ -6,8 +6,10 @@ import * as vscode from "vscode";
 import type {
   HerdrAttachController,
   HerdrAttachPresenter,
+  HerdrAttachTarget,
   SourceState,
 } from "../herdr/HerdrAttachController";
+import { herdrSessionId } from "../herdr/HerdrAttachController";
 import type { CursorStyle, HostMessage, TerminalConfig, WebviewMessage } from "../types";
 import { TerminalManager } from "../terminals/TerminalManager";
 import { renderTerminalHtml } from "../webview/terminal/html";
@@ -19,6 +21,12 @@ const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 
 export type TerminalLocation = "sidebar" | "editor";
 
+type HerdrEditorSession = {
+  readonly panel: vscode.WebviewPanel;
+  readonly controller: HerdrAttachController;
+  readonly target: HerdrAttachTarget;
+};
+
 export class TerminalProvider
   implements vscode.WebviewViewProvider, vscode.Disposable, HerdrAttachPresenter
 {
@@ -29,6 +37,8 @@ export class TerminalProvider
   private activeLocation: TerminalLocation = "sidebar";
   private disposing = false;
   private readonly disposables: vscode.Disposable[] = [];
+  private readonly herdrSessions = new Map<string, HerdrEditorSession>();
+  private activeTerminalId = TERMINAL_ID;
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
@@ -37,25 +47,38 @@ export class TerminalProvider
   ) {
     this.disposables.push(
       terminalManager.onData(({ id, data, replay }) => {
-        if (id !== TERMINAL_ID) {
+        if (id === TERMINAL_ID) {
+          if (replay === "replace") {
+            this.postMessage({ type: "reset" });
+          }
+          this.postMessage({ type: "output", data });
+          return;
+        }
+        const session = this.herdrSessions.get(id);
+        if (!session) {
           return;
         }
         if (replay === "replace") {
-          this.postMessage({ type: "reset" });
+          void session.panel.webview.postMessage({ type: "reset" });
         }
-        this.postMessage({ type: "output", data });
+        void session.panel.webview.postMessage({ type: "output", data });
       }),
       terminalManager.onExit(({ id, code, signal }) => {
-        if (id !== TERMINAL_ID) {
+        if (id === TERMINAL_ID) {
+          if (
+            this.terminalManager.activeSource(TERMINAL_ID) === "herdr-control" ||
+            this.attachController?.sourceState.phase === "attached"
+          ) {
+            return;
+          }
+          this.postMessage({ type: "exit", code, signal });
           return;
         }
-        if (
-          this.terminalManager.activeSource(TERMINAL_ID) === "herdr-control" ||
-          this.attachController?.sourceState.phase === "attached"
-        ) {
+        const session = this.herdrSessions.get(id);
+        if (!session) {
           return;
         }
-        this.postMessage({ type: "exit", code, signal });
+        void session.panel.webview.postMessage({ type: "exit", code, signal });
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration("ulw")) {
@@ -110,7 +133,82 @@ export class TerminalProvider
   }
 
   public write(data: string): void {
-    this.terminalManager.write(TERMINAL_ID, data);
+    this.terminalManager.write(this.activeTerminalId, data);
+  }
+
+  public async openHerdrSession(
+    target: HerdrAttachTarget,
+    attach: (target: HerdrAttachTarget) => Promise<void>,
+    createController: (sessionId: string, presenter: HerdrAttachPresenter) => HerdrAttachController,
+  ): Promise<void> {
+    const sessionId = herdrSessionId(target.terminalId);
+    const existing = this.herdrSessions.get(sessionId);
+    if (existing) {
+      this.activeTerminalId = sessionId;
+      existing.panel.reveal(vscode.ViewColumn.Active);
+      if (existing.controller.sourceState.phase === "shell") {
+        await attach(target);
+        return;
+      }
+      this.postSourceStateToPanel(existing.panel, existing.controller.sourceState);
+      return;
+    }
+
+    const title = target.label?.trim() || target.terminalId;
+    const panel = vscode.window.createWebviewPanel(
+      EDITOR_VIEW_TYPE,
+      title,
+      vscode.ViewColumn.Active,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [this.extensionUri],
+      },
+    );
+    this.configureWebview(panel.webview);
+    const presenter: HerdrAttachPresenter = {
+      postReset: () => {
+        void panel.webview.postMessage({ type: "reset" });
+      },
+      postOutput: (data) => {
+        void panel.webview.postMessage({ type: "output", data });
+      },
+      postSourceState: (state) => {
+        this.postSourceStateToPanel(panel, state);
+      },
+    };
+    const controller = createController(sessionId, presenter);
+    const session: HerdrEditorSession = { panel, controller, target };
+    this.herdrSessions.set(sessionId, session);
+    this.activeTerminalId = sessionId;
+    const messageSubscription = panel.webview.onDidReceiveMessage(
+      (message: WebviewMessage) => {
+        this.handleHerdrSessionMessage(sessionId, message);
+      },
+    );
+    const disposeSubscription = panel.onDidDispose(() => {
+      messageSubscription.dispose();
+      disposeSubscription.dispose();
+      const current = this.herdrSessions.get(sessionId);
+      if (current?.panel !== panel) {
+        return;
+      }
+      this.herdrSessions.delete(sessionId);
+      current.controller.dispose();
+      if (this.activeTerminalId === sessionId) {
+        this.activeTerminalId = TERMINAL_ID;
+      }
+    });
+    panel.webview.html = this.renderHtml(panel.webview);
+    await attach(target);
+  }
+
+  public herdrSessionCount(): number {
+    return this.herdrSessions.size;
+  }
+
+  public activeSessionId(): string {
+    return this.activeTerminalId;
   }
 
   public postReset(): void {
@@ -135,6 +233,11 @@ export class TerminalProvider
 
   public dispose(): void {
     this.disposing = true;
+    for (const [sessionId, session] of this.herdrSessions) {
+      session.controller.dispose();
+      session.panel.dispose();
+      this.herdrSessions.delete(sessionId);
+    }
     this.terminalManager.kill(TERMINAL_ID);
     const panel = this.editorPanel;
     this.editorPanel = undefined;
@@ -359,6 +462,64 @@ export class TerminalProvider
       return undefined;
     }
     return { mimeType: match[1], buffer: Buffer.from(match[2], "base64") };
+  }
+
+  private handleHerdrSessionMessage(
+    sessionId: string,
+    message: WebviewMessage,
+  ): void {
+    const session = this.herdrSessions.get(sessionId);
+    if (!session) {
+      return;
+    }
+    switch (message.type) {
+      case "ready": {
+        const source = this.terminalManager.activeSource(sessionId);
+        if (source !== undefined) {
+          this.terminalManager.resize(sessionId, message.cols, message.rows);
+        }
+        void session.panel.webview.postMessage({ type: "config", ...this.readConfig() });
+        this.postSourceStateToPanel(session.panel, session.controller.sourceState);
+        void session.panel.webview.postMessage({ type: "reset" });
+        const replay = this.terminalManager.replay(sessionId);
+        if (replay.length > 0) {
+          void session.panel.webview.postMessage({ type: "output", data: replay });
+        }
+        void session.panel.webview.postMessage({ type: "focus" });
+        break;
+      }
+      case "input":
+        this.terminalManager.write(sessionId, message.data);
+        break;
+      case "resize":
+        this.terminalManager.resize(sessionId, message.cols, message.rows);
+        break;
+      case "copy":
+        if (message.text) {
+          void vscode.env.clipboard.writeText(message.text);
+        }
+        break;
+      case "imagePasted":
+        void this.saveImageAndPostPath(message.data);
+        break;
+      default: {
+        const _exhaustive: never = message;
+        void _exhaustive;
+      }
+    }
+  }
+
+  private postSourceStateToPanel(
+    panel: vscode.WebviewPanel,
+    state: SourceState,
+  ): void {
+    void panel.webview.postMessage({
+      type: "sourceState",
+      source: state.source,
+      phase: state.phase,
+      ...(state.label === undefined ? {} : { label: state.label }),
+      ...(state.message === undefined ? {} : { message: state.message }),
+    });
   }
 
   private applySidebarVisibility(): void {

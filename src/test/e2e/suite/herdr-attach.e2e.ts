@@ -323,15 +323,6 @@ suite("Live Herdr terminal attach", () => {
       sourceStates.push(state);
     });
 
-    const shellStarted = api.isTerminalRunning()
-      ? Promise.resolve(1)
-      : waitForEvent(
-          api.onTerminalStart,
-          (pid) => pid > 0,
-          "the retained local shell to start",
-        );
-    await vscode.commands.executeCommand("workbench.view.extension.ulwContainer");
-    await shellStarted;
     await api.refreshExplorer();
     const workspace = scratch;
     const explorer = api.getExplorerSnapshot();
@@ -365,10 +356,6 @@ suite("Live Herdr terminal attach", () => {
     assert.strictEqual(treeAttachedState.source, "herdr");
     await api.detachHerdr();
     await treeDetached;
-
-    const shellPrimed = waitForOutput(api.onTerminalData, "ULW_E2E_SHELL");
-    api.writeToTerminal("printf 'ULW_E2E_SHELL\\n'\r");
-    await shellPrimed;
 
     const happyAttachPhaseStart = sourceStates.length;
     const attached = waitForEvent(
@@ -417,14 +404,6 @@ suite("Live Herdr terminal attach", () => {
       "detaching",
       "shell",
     );
-    assert.match(api.getSurfaceSnapshot().renderedText, /ULW_E2E_SHELL/);
-
-    const shellAfterDetach = waitForOutput(
-      api.onTerminalData,
-      "ULW_E2E_SHELL_AFTER_DETACH",
-    );
-    api.writeToTerminal("printf 'ULW_E2E_SHELL_AFTER_DETACH\\n'\r");
-    await shellAfterDetach;
 
     const terminalExits: number[] = [];
     const terminalExitSubscription = api.onTerminalExit((code) => {
@@ -443,22 +422,9 @@ suite("Live Herdr terminal attach", () => {
     const errorState = await attachError;
     assert.strictEqual(errorState.source, "shell");
     assert.strictEqual(api.getSurfaceSnapshot().sourceState.phase, "shell");
-
-    const shellAfterError = waitForOutput(
-      api.onTerminalData,
-      "ULW_E2E_SHELL_AFTER_ERROR",
-    );
-    api.writeToTerminal("printf 'ULW_E2E_SHELL_AFTER_ERROR\\n'\r");
-    await shellAfterError;
     terminalExitSubscription.dispose();
     sourceStateSubscription.dispose();
-    assert.deepStrictEqual(terminalExits, [], "The retained shell must not exit");
-    assert.strictEqual(api.isTerminalRunning(), true);
-    assert.strictEqual(api.terminalCount(), 1);
-    assert.match(
-      api.getSurfaceSnapshot().renderedText,
-      /ULW_E2E_SHELL_AFTER_ERROR/,
-    );
+    assert.deepStrictEqual(terminalExits, [], "A failed Herdr attach must not exit the editor session");
   });
 
   suiteTeardown(async function () {

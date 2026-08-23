@@ -69,6 +69,10 @@ export class HerdrAttachBusyError extends Error {
   }
 }
 
+export function herdrSessionId(terminalId: string): string {
+  return `herdr:${terminalId}`;
+}
+
 type ControllerPhase = "shell" | "attaching" | "attached" | "detaching";
 
 export class HerdrAttachController implements vscode.Disposable {
@@ -179,7 +183,6 @@ export class HerdrAttachController implements vscode.Disposable {
     }
 
     const transport = this.managedTransport ?? this.transport;
-    const dimensions = this.dimensions;
     const generation = ++this.generation;
     this.phase = "detaching";
     this.explicitDetach = true;
@@ -197,7 +200,7 @@ export class HerdrAttachController implements vscode.Disposable {
       this.transport = undefined;
       this.managedTransport = undefined;
       this.explicitDetach = false;
-      this.restoreShell(dimensions);
+      this.finishClosed();
     }
   }
 
@@ -284,7 +287,6 @@ export class HerdrAttachController implements vscode.Disposable {
     if (!this.isCurrent(generation, this.transport) || this.phase !== "attached") {
       return;
     }
-    const dimensions = this.dimensions;
     this.generation += 1;
     this.transport = undefined;
     this.managedTransport = undefined;
@@ -296,34 +298,13 @@ export class HerdrAttachController implements vscode.Disposable {
       phase: "error",
       message: message ?? exitMessage(reason),
     });
-    this.restoreShell(dimensions);
+    this.finishClosed();
   }
 
-  private restoreShell(dimensions: TerminalDimensions | undefined): void {
-    let message: string | undefined;
-    if (dimensions) {
-      if (this.manager.activeSource(this.terminalId) !== "local-shell") {
-        this.manager.ensureLocalShell(
-          this.terminalId,
-          dimensions.cols,
-          dimensions.rows,
-        );
-        message = "Local shell restarted because it exited while Herdr was attached.";
-      }
-      this.manager.resize(this.terminalId, dimensions.cols, dimensions.rows);
-    }
-    this.presenter.postReset();
-    const replay = this.manager.replay(this.terminalId);
-    if (replay.length > 0) {
-      this.presenter.postOutput(replay);
-    }
+  private finishClosed(): void {
     this.phase = "shell";
     this.label = undefined;
-    this.emitState(
-      message
-        ? { source: "shell", phase: "shell", message }
-        : { source: "shell", phase: "shell" },
-    );
+    this.emitState({ source: "shell", phase: "shell" });
   }
 
   private emitState(state: SourceState): void {

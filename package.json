@@ -37,7 +37,7 @@
           "id": "ulwContainer",
           "title": "ULW",
           "icon": "resources/ulwcode-sidebar.svg",
-          "when": "config.ulw.sidebar.enabled"
+          "when": "config.ulw.sidebar.enabled && !config.ulw.herdr.enabled"
         }
       ]
     },
@@ -48,7 +48,7 @@
           "name": "Terminal",
           "type": "webview",
           "icon": "resources/ulwcode-sidebar.svg",
-          "when": "config.ulw.sidebar.enabled"
+          "when": "config.ulw.sidebar.enabled && !config.ulw.herdr.enabled"
         }
       ],
       "ulwHerdr": [

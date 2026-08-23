@@ -1,8 +1,8 @@
 # ULW Sidebar Terminal
 
-ULW is a small VS Code extension that runs one native shell terminal in the secondary sidebar.
+ULW is a small VS Code extension that runs one native shell terminal in the secondary sidebar or an editor-group tab.
 
-It intentionally has no terminal multiplexer UI of its own — it can attach to an external one (Herdr) — and no session manager, AI integration, HTTP service, dashboard, or multi-pane layout. Opening ULW creates one `node-pty` process and connects it to one xterm.js terminal in either the secondary sidebar or an editor-group tab.
+With Herdr integration off, opening ULW creates one `node-pty` process connected to one xterm.js surface. With `ulw.herdr.enabled`, the ULW sidebar terminal is hidden; Spaces/Agents live in the Activity Bar, and each agent opens in its own editor-group tab.
 
 ## Use
 

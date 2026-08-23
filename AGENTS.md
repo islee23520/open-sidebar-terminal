@@ -2,7 +2,7 @@
 
 ## OVERVIEW
 
-VS Code extension that runs one native shell terminal in the secondary sidebar or an editor-group tab. The extension host owns one persistent `node-pty` shell PTY rendered through one active xterm surface, plus at most one Herdr session-control bridge child while attached; input and resize route to the single active source at a time.
+VS Code extension that runs one native shell terminal in the secondary sidebar or an editor-group tab. With Herdr off, the host owns one persistent `node-pty` shell PTY on one active xterm surface. With Herdr on, the sidebar terminal is hidden and each attached agent gets its own editor-group webview plus one control-bridge child.
 
 ## SOURCE TOPOLOGY
 
@@ -36,33 +36,34 @@ src/
 ## RUNTIME FLOW
 
 ```text
-sidebar: contributed view `ulw` (only when `ulw.sidebar.enabled`) -> resolveWebviewView()
-editor:  ulw.defaultLocation=editor (default) | ulw.toggleEditorLocation -> createWebviewPanel
-  -> active surface posts `ready`
-  -> TerminalManager creates or resizes `sidebar-shell`
-  -> scrollback replay when switching to a fresh xterm
-  -> attach flow: command palette QuickPick or Activity Bar agent click -> CLI discovery (agent list) -> control bridge spawn (--takeover) -> first-full-frame atomic cutover -> reset + badge
-  -> detach/external closure -> shell restore
-  -> node-pty data/exit events post to surfaces
-  -> active surface input/resize events write/resize the active source only
+Herdr off:
+  sidebar: contributed view `ulw` (when `ulw.sidebar.enabled`) -> resolveWebviewView()
+  editor:  ulw.defaultLocation=editor (default) | ulw.toggleEditorLocation -> one shared webview panel
+    -> TerminalManager creates or resizes `sidebar-shell`
+Herdr on:
+  sidebar terminal hidden (`when: config.ulw.sidebar.enabled && !config.ulw.herdr.enabled`)
+  Activity Bar Spaces/Agents -> agent click in this window opens/reveals an editor-group tab per agent
+    -> one control-bridge child per attached agent -> first-full-frame atomic cutover
+    -> detach/external closure closes that session without restoring a local shell
 ```
 
 ## CONTRACT
 
 - Webview to host: `ready`, `input`, `resize`, `copy`, `imagePasted`.
 - Host to webview: `output`, `exit`, `config`, `focus`, `clipboardImage`, `reset`, `sourceState`.
-- No pane or session identifiers: one persistent shell PTY exists, plus at most one Herdr bridge child while attached.
-- One active surface at a time: secondary-sidebar webview or one editor-group webview panel.
-- Input and resize always target the currently ACTIVE source only.
-- `ulw.toggleEditorLocation` moves that single shell between surfaces.
+- Herdr off: one persistent shell PTY; one active surface (sidebar or one editor panel).
+- Herdr on: no sidebar terminal; one editor-group tab and one Herdr bridge child per attached agent.
+- Input and resize target the currently ACTIVE surface only.
+- `ulw.toggleEditorLocation` moves the shared shell between surfaces only while Herdr is off.
 
 ## CONVENTIONS
 
 - Activate for the sidebar view, contributed commands, and startup (so `ulw.defaultLocation=editor` can open an editor tab).
 - Keep contributed commands limited to location toggle, send-to-terminal helpers, Herdr attach/detach, and the read-only Spaces/Agents explorer; no keybindings.
 - Keep `node-pty` as the only runtime dependency. xterm and the fit addon are build-time dependencies bundled into `webview.js`.
-- Herdr attach is allowed only through one official CLI bridge child using builtin `child_process`; no raw socket client, no agent start/rename, no auto-start/reconnect/reattach. Herdr commands and the Activity Bar Spaces/Agents tree stay hidden until `ulw.herdr.enabled` is true. Then the tree lists live workspaces, attaches the existing single PTY to a clicked agent in this window, and opens another Space's folder in a new VS Code window.
-- One editor panel max for the shared shell; never spawn a second PTY for editor mode.
+- Herdr attach is allowed only through official CLI bridge children using builtin `child_process`; no raw socket client, no agent start/rename, no auto-start/reconnect/reattach. Herdr commands and the Activity Bar Spaces/Agents tree stay hidden until `ulw.herdr.enabled` is true. Then the tree lists live workspaces, opens each clicked agent in this window as its own editor-group tab, and opens another Space's folder in a new VS Code window.
+- With Herdr off: one editor panel max for the shared shell; never spawn a second PTY for editor mode.
+- With Herdr on: hide the ULW sidebar terminal; open each agent in its own editor-group tab; do not restore a local shell on detach.
 - Honor `ulw.defaultLocation` (`editor` default | `sidebar`); toggle always overrides the current surface.
 - Use project scripts for verification.
 

@@ -233,7 +233,7 @@ describe("HerdrAttachController", () => {
     },
   );
 
-  test("row 3: explicit detach awaits release and restores retained shell replay", async () => {
+  test("row 3: explicit detach awaits release and does not restore a local shell", async () => {
     const harness = setup();
     const transport = await attachSuccessfully(harness);
     const release = deferred();
@@ -247,8 +247,7 @@ describe("HerdrAttachController", () => {
 
     expect(transport.close).toHaveBeenCalledWith("release");
     expect(harness.manager.detach).toHaveBeenCalledWith("sidebar-shell");
-    expect(harness.manager.resize).toHaveBeenCalledWith("sidebar-shell", 80, 24);
-    expect(last(harness.presenter.output)).toBe("shell replay");
+    expect(harness.manager.ensureLocalShell).not.toHaveBeenCalled();
     expect(last(phases(harness))).toBe("shell");
     expect(last(harness.eventStates)).toEqual({ source: "shell", phase: "shell" });
   });
@@ -311,7 +310,7 @@ describe("HerdrAttachController", () => {
       expect(errorStates[0].message).toBe(expectedMessage);
       expect(phases(harness).slice(-2)).toEqual(["error", "shell"]);
       expect(harness.manager.detach).toHaveBeenCalledTimes(1);
-      expect(last(harness.presenter.output)).toBe("shell replay");
+      expect(harness.manager.ensureLocalShell).not.toHaveBeenCalled();
 
       transport.output("STALE", "append");
       expect(harness.presenter.output).not.toContain("STALE");
@@ -319,22 +318,17 @@ describe("HerdrAttachController", () => {
     },
   );
 
-  test("row 8: shell exit while attached creates a fresh shell on detach", async () => {
+  test("row 8: detach after the local slot died still does not spawn a shell", async () => {
     const harness = setup();
     await attachSuccessfully(harness);
     harness.manager.shellAlive = false;
 
     await harness.controller.detach();
 
-    expect(harness.manager.ensureLocalShell).toHaveBeenCalledWith(
-      "sidebar-shell",
-      80,
-      24,
-    );
+    expect(harness.manager.ensureLocalShell).not.toHaveBeenCalled();
     expect(last(harness.eventStates)).toEqual({
       source: "shell",
       phase: "shell",
-      message: "Local shell restarted because it exited while Herdr was attached.",
     });
   });
 

@@ -309,6 +309,24 @@ describe("TerminalManager", () => {
     });
   });
 
+  it("counts attached-only Herdr sessions as running terminals", () => {
+    const manager = new TerminalManager();
+    const transport: TerminalTransport = {
+      kind: "herdr-control",
+      write: vi.fn(),
+      resize: vi.fn(),
+      close: vi.fn(async () => undefined),
+      onOutput: () => ({ dispose() {} }),
+      onExit: () => ({ dispose() {} }),
+    };
+
+    manager.attach("herdr:term-a", () => transport, "frame");
+    manager.attach("herdr:term-b", () => transport, "frame");
+
+    expect(manager.terminalCount()).toBe(2);
+    expect(manager.hasTerminal("herdr:term-a")).toBe(true);
+  });
+
   describe("characterization: current one-PTY lifecycle", () => {
     it("returns the same pty instance for an existing terminal id", () => {
       const manager = new TerminalManager();

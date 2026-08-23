@@ -315,8 +315,6 @@ describe("TerminalProvider", () => {
           phase: "error",
           message: "taken elsewhere",
         },
-        { type: "reset" },
-        { type: "output", data: "shell replay" },
         { type: "sourceState", source: "shell", phase: "shell" },
       ]);
       expect(posted(webview)).not.toContainEqual(

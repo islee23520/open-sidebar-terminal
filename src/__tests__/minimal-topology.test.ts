@@ -56,7 +56,7 @@ describe("minimal sidebar terminal topology", () => {
     expect(manifest.contributes.viewsContainers.secondarySidebar).toEqual([
       expect.objectContaining({
         id: "ulwContainer",
-        when: "config.ulw.sidebar.enabled",
+        when: "config.ulw.sidebar.enabled && !config.ulw.herdr.enabled",
       }),
     ]);
     expect(manifest.contributes.viewsContainers.activitybar).toEqual([
@@ -66,7 +66,7 @@ describe("minimal sidebar terminal topology", () => {
       expect.objectContaining({
         id: "ulw",
         type: "webview",
-        when: "config.ulw.sidebar.enabled",
+        when: "config.ulw.sidebar.enabled && !config.ulw.herdr.enabled",
       }),
     ]);
     expect(manifest.contributes.views["ulwHerdr"]).toEqual([
