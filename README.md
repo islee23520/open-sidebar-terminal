@@ -44,6 +44,7 @@ The terminal automatically inherits the active VS Code terminal palette, includi
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `ulw.defaultLocation` | `editor` | Open in an editor-group tab or the secondary sidebar |
+| `ulw.sidebar.enabled` | `true` | Show the ULW label in the secondary sidebar. Off hides ULW from the sidebar completely |
 | `ulw.fontSize` | `14` | Terminal font size |
 | `ulw.fontFamily` | Nerd Font and monospace fallbacks | Terminal font family |
 | `ulw.cursorBlink` | `true` | Blink the cursor |

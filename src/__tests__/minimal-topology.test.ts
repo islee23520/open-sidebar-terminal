@@ -51,13 +51,20 @@ describe("minimal sidebar terminal topology", () => {
       "secondarySidebar",
     ]);
     expect(manifest.contributes.viewsContainers.secondarySidebar).toEqual([
-      expect.objectContaining({ id: "ulwContainer" }),
+      expect.objectContaining({
+        id: "ulwContainer",
+        when: "config.ulw.sidebar.enabled",
+      }),
     ]);
     expect(manifest.contributes.viewsContainers.activitybar).toEqual([
       expect.objectContaining({ id: "ulwHerdr" }),
     ]);
     expect(manifest.contributes.views.ulwContainer).toEqual([
-      expect.objectContaining({ id: "ulw", type: "webview" }),
+      expect.objectContaining({
+        id: "ulw",
+        type: "webview",
+        when: "config.ulw.sidebar.enabled",
+      }),
     ]);
     expect(manifest.contributes.views["ulwHerdr"]).toEqual([
       expect.objectContaining({
@@ -142,6 +149,7 @@ describe("minimal sidebar terminal topology", () => {
       "ulw.scrollback",
       "ulw.shellArgs",
       "ulw.shellPath",
+      "ulw.sidebar.enabled",
     ]);
   });
 

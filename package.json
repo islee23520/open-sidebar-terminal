@@ -36,7 +36,8 @@
         {
           "id": "ulwContainer",
           "title": "ULW",
-          "icon": "resources/ulwcode-sidebar.svg"
+          "icon": "resources/ulwcode-sidebar.svg",
+          "when": "config.ulw.sidebar.enabled"
         }
       ]
     },
@@ -46,7 +47,8 @@
           "id": "ulw",
           "name": "Terminal",
           "type": "webview",
-          "icon": "resources/ulwcode-sidebar.svg"
+          "icon": "resources/ulwcode-sidebar.svg",
+          "when": "config.ulw.sidebar.enabled"
         }
       ],
       "ulwHerdr": [
@@ -143,6 +145,11 @@
     "configuration": {
       "title": "ULW Terminal",
       "properties": {
+        "ulw.sidebar.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the ULW label in the secondary sidebar. Turn this off to hide ULW from the sidebar completely; the terminal still opens as an editor tab."
+        },
         "ulw.defaultLocation": {
           "type": "string",
           "enum": [

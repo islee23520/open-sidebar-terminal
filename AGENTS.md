@@ -36,7 +36,7 @@ src/
 ## RUNTIME FLOW
 
 ```text
-sidebar: contributed view `ulw` -> resolveWebviewView()
+sidebar: contributed view `ulw` (only when `ulw.sidebar.enabled`) -> resolveWebviewView()
 editor:  ulw.defaultLocation=editor (default) | ulw.toggleEditorLocation -> createWebviewPanel
   -> active surface posts `ready`
   -> TerminalManager creates or resizes `sidebar-shell`

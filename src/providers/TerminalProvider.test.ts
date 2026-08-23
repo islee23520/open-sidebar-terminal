@@ -126,7 +126,10 @@ function posted(webview: { readonly postMessage: ReturnType<typeof vi.fn> }): un
 }
 
 describe("TerminalProvider", () => {
-  beforeEach(() => vscode.resetMocks());
+  beforeEach(() => {
+    vscode.resetMocks();
+    vscode.setConfiguration({ "ulw.sidebar.enabled": true });
+  });
 
   describe("Herdr controller integration", () => {
     it("mirrors attach output to both mounted surfaces while badge and reset target the active surface", async () => {
@@ -654,6 +657,28 @@ describe("TerminalProvider", () => {
     expect(webview.postMessage).toHaveBeenCalledWith({ type: "focus" });
   });
 
+  it("keeps the editor panel when sidebar ULW is disabled", () => {
+    vscode.setConfiguration({ "ulw.sidebar.enabled": false });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    const { view, webview } = createView();
+    provider.resolveWebviewView(view as never);
+    webview.send({ type: "ready", cols: 80, rows: 24 });
+
+    provider.toggleEditorLocation();
+    const panel = lastResult(vscode.window.createWebviewPanel.mock.results)
+      ?.value as vscode.MockWebviewPanel;
+    vscode.commands.executeCommand.mockClear();
+
+    provider.toggleEditorLocation();
+
+    expect(provider.isEditorLocation()).toBe(true);
+    expect(panel.dispose).not.toHaveBeenCalled();
+    expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
+      "workbench.view.extension.ulwContainer",
+    );
+  });
+
   it("returns to sidebar when the editor panel is closed by the workbench", () => {
     const manager = new TerminalManager();
     const provider = new TerminalProvider(extensionUri, manager);
@@ -670,6 +695,23 @@ describe("TerminalProvider", () => {
     expect(provider.isEditorLocation()).toBe(false);
     expect(webview.postMessage).toHaveBeenCalledWith({ type: "focus" });
     expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+      "workbench.view.extension.ulwContainer",
+    );
+  });
+
+  it("stays in editor mode when the panel is closed and sidebar ULW is disabled", () => {
+    vscode.setConfiguration({ "ulw.sidebar.enabled": false });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    provider.toggleEditorLocation();
+    const panel = lastResult(vscode.window.createWebviewPanel.mock.results)
+      ?.value as vscode.MockWebviewPanel;
+    vscode.commands.executeCommand.mockClear();
+
+    (panel.dispose as unknown as () => void)();
+
+    expect(provider.isEditorLocation()).toBe(true);
+    expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
       "workbench.view.extension.ulwContainer",
     );
   });
@@ -763,9 +805,24 @@ describe("TerminalProvider", () => {
     expect(provider.isEditorLocation()).toBe(true);
 
     vscode.window.createWebviewPanel.mockClear();
-    vscode.setConfiguration({ "ulw.defaultLocation": "sidebar" });
+    vscode.setConfiguration({
+      "ulw.defaultLocation": "sidebar",
+      "ulw.sidebar.enabled": true,
+    });
     provider.openAtConfiguredLocation();
     expect(vscode.window.createWebviewPanel).not.toHaveBeenCalled();
+  });
+
+  it("opens the editor even when defaultLocation is sidebar if sidebar ULW is disabled", () => {
+    vscode.setConfiguration({
+      "ulw.defaultLocation": "sidebar",
+      "ulw.sidebar.enabled": false,
+    });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    provider.openAtConfiguredLocation();
+    expect(vscode.window.createWebviewPanel).toHaveBeenCalledOnce();
+    expect(provider.isEditorLocation()).toBe(true);
   });
 
   it("starts the shell from editor ready without a sidebar surface", () => {

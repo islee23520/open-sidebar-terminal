@@ -61,6 +61,9 @@ export class TerminalProvider
         if (event.affectsConfiguration("ulw")) {
           this.postMessage({ type: "config", ...this.readConfig() });
         }
+        if (event.affectsConfiguration("ulw.sidebar.enabled")) {
+          this.applySidebarVisibility();
+        }
       }),
     );
   }
@@ -82,13 +85,16 @@ export class TerminalProvider
   }
 
   public openAtConfiguredLocation(): void {
-    if (this.readDefaultLocation() === "editor") {
+    if (this.readDefaultLocation() === "editor" || !this.sidebarEnabled()) {
       this.openEditorPanel();
     }
   }
 
   public toggleEditorLocation(): void {
     if (this.editorPanel) {
+      if (!this.sidebarEnabled()) {
+        return;
+      }
       this.closeEditorPanel();
       return;
     }
@@ -96,7 +102,7 @@ export class TerminalProvider
   }
 
   public isEditorLocation(): boolean {
-    return this.activeLocation === "editor" && this.editorPanel !== undefined;
+    return this.activeLocation === "editor";
   }
 
   public getDefaultLocation(): TerminalLocation {
@@ -172,6 +178,11 @@ export class TerminalProvider
       disposeSubscription.dispose();
       if (this.editorPanel === panel && !this.disposing) {
         this.editorPanel = undefined;
+        if (!this.sidebarEnabled()) {
+          this.activeLocation = "editor";
+          void vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar");
+          return;
+        }
         this.activeLocation = "sidebar";
         this.postMessage({ type: "focus" });
         void vscode.commands.executeCommand("workbench.view.extension.ulwContainer");
@@ -187,6 +198,12 @@ export class TerminalProvider
       return;
     }
     this.editorPanel = undefined;
+    if (!this.sidebarEnabled()) {
+      this.activeLocation = "editor";
+      panel.dispose();
+      void vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar");
+      return;
+    }
     this.activeLocation = "sidebar";
     panel.dispose();
     if (!this.disposing) {
@@ -344,7 +361,24 @@ export class TerminalProvider
     return { mimeType: match[1], buffer: Buffer.from(match[2], "base64") };
   }
 
+  private applySidebarVisibility(): void {
+    if (this.sidebarEnabled()) {
+      return;
+    }
+    if (this.editorPanel) {
+      this.activeLocation = "editor";
+    }
+    void vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar");
+  }
+
+  private sidebarEnabled(): boolean {
+    return vscode.workspace.getConfiguration("ulw").get<boolean>("sidebar.enabled", true);
+  }
+
   private readDefaultLocation(): TerminalLocation {
+    if (!this.sidebarEnabled()) {
+      return "editor";
+    }
     const configuration = vscode.workspace.getConfiguration("ulw");
     const configured = configuration.get<string>("defaultLocation", "editor");
     return configured === "sidebar" ? "sidebar" : "editor";
