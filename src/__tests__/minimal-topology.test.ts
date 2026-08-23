@@ -60,8 +60,14 @@ describe("minimal sidebar terminal topology", () => {
       expect.objectContaining({ id: "ulw", type: "webview" }),
     ]);
     expect(manifest.contributes.views["ulwHerdr"]).toEqual([
-      expect.objectContaining({ id: "ulw.herdr.spaces" }),
-      expect.objectContaining({ id: "ulw.herdr.agents" }),
+      expect.objectContaining({
+        id: "ulw.herdr.spaces",
+        when: "config.ulw.herdr.enabled",
+      }),
+      expect.objectContaining({
+        id: "ulw.herdr.agents",
+        when: "config.ulw.herdr.enabled",
+      }),
     ]);
   });
 
@@ -128,6 +134,7 @@ describe("minimal sidebar terminal topology", () => {
       "ulw.defaultLocation",
       "ulw.fontFamily",
       "ulw.fontSize",
+      "ulw.herdr.enabled",
       "ulw.herdr.executablePath",
       "ulw.herdr.session",
       "ulw.herdr.socketPath",

@@ -8,6 +8,7 @@ export class HerdrInvocationResolver {
     const session = input.session?.trim() || "";
     const socketPath = input.socketPath?.trim() || "";
     const env = this.copyEnvironment(input.env);
+    this.prependCommonBinDirs(env, input.platform);
     const argsPrefix: string[] = [];
     const warnings: string[] = [];
     let displayEndpoint = "herdr default";
@@ -47,5 +48,22 @@ export class HerdrInvocationResolver {
       }
     }
     return env;
+  }
+
+  private static prependCommonBinDirs(
+    env: Record<string, string>,
+    platform: HerdrInvocationInput["platform"],
+  ): void {
+    const home = env.HOME ?? env.USERPROFILE;
+    if (!home) {
+      return;
+    }
+    const extra = `${home}/.local/bin`;
+    const separator = platform === "win32" ? ";" : ":";
+    const parts = (env.PATH ?? "").split(separator).filter(Boolean);
+    if (parts.includes(extra)) {
+      return;
+    }
+    env.PATH = [extra, ...parts].join(separator);
   }
 }

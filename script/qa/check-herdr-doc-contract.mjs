@@ -49,6 +49,7 @@ function isHerdrCommand(key) {
 
 function isHerdrSetting(key) {
   return (
+    key === 'ulw.herdr.enabled' ||
     key === 'ulw.herdr.executablePath' ||
     key === 'ulw.herdr.socketPath' ||
     key === 'ulw.herdr.session'

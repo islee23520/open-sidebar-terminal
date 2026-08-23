@@ -52,11 +52,13 @@
       "ulwHerdr": [
         {
           "id": "ulw.herdr.spaces",
-          "name": "Spaces"
+          "name": "Spaces",
+          "when": "config.ulw.herdr.enabled"
         },
         {
           "id": "ulw.herdr.agents",
-          "name": "Agents"
+          "name": "Agents",
+          "when": "config.ulw.herdr.enabled"
         }
       ]
     },
@@ -215,6 +217,11 @@
           "default": [],
           "scope": "machine-overridable",
           "description": "Arguments passed to the shell executable."
+        },
+        "ulw.herdr.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Herdr Spaces/Agents and attach/detach. Off by default; ULW is only a terminal until this is turned on."
         },
         "ulw.herdr.executablePath": {
           "type": "string",

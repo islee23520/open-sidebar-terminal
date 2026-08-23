@@ -314,6 +314,9 @@ suite("Live Herdr terminal attach", () => {
       "islee23520.opencode-sidebar-tui",
     );
     assert.ok(extension, "Extension should be available in the test host");
+    await vscode.workspace
+      .getConfiguration("ulw")
+      .update("herdr.enabled", true, vscode.ConfigurationTarget.Global);
     const api = await extension.activate();
     const sourceStates: SourceState[] = [];
     const sourceStateSubscription = api.onSourceState((state) => {

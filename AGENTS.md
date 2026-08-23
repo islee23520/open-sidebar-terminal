@@ -61,7 +61,7 @@ editor:  ulw.defaultLocation=editor (default) | ulw.toggleEditorLocation -> crea
 - Activate for the sidebar view, contributed commands, and startup (so `ulw.defaultLocation=editor` can open an editor tab).
 - Keep contributed commands limited to location toggle, send-to-terminal helpers, Herdr attach/detach, and the read-only Spaces/Agents explorer; no keybindings.
 - Keep `node-pty` as the only runtime dependency. xterm and the fit addon are build-time dependencies bundled into `webview.js`.
-- Herdr attach is allowed only through one official CLI bridge child using builtin `child_process`; no raw socket client, no agent start/rename, no auto-start/reconnect/reattach. The Activity Bar Spaces/Agents tree lists live workspaces, attaches the existing single PTY to a clicked agent in this window, and opens another Space's folder in a new VS Code window.
+- Herdr attach is allowed only through one official CLI bridge child using builtin `child_process`; no raw socket client, no agent start/rename, no auto-start/reconnect/reattach. Herdr commands and the Activity Bar Spaces/Agents tree stay hidden until `ulw.herdr.enabled` is true. Then the tree lists live workspaces, attaches the existing single PTY to a clicked agent in this window, and opens another Space's folder in a new VS Code window.
 - One editor panel max for the shared shell; never spawn a second PTY for editor mode.
 - Honor `ulw.defaultLocation` (`editor` default | `sidebar`); toggle always overrides the current surface.
 - Use project scripts for verification.

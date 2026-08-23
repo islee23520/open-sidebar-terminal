@@ -107,9 +107,7 @@ export class HerdrCliClient {
       );
     }
 
-    return parsed.result.agents.map((row, index) =>
-      this.mapAgent(row, index),
-    );
+    return parsed.result.agents.map((row, index) => this.mapAgent(row, index));
   }
 
   public async listWorkspaces(): Promise<readonly HerdrSpace[]> {
@@ -230,20 +228,29 @@ export class HerdrCliClient {
       throw this.invalidAgent(index);
     }
 
-    const fields = {
-      paneId: value.pane_id,
-      terminalId: value.terminal_id,
-      agent: value.agent,
-      status: value.agent_status,
-      title: value.terminal_title_stripped,
-      cwd: value.cwd,
-      workspaceId: value.workspace_id,
-    };
-    if (Object.values(fields).some((field) => typeof field !== "string")) {
+    const paneId = value.pane_id;
+    const terminalId = value.terminal_id;
+    const agent = value.agent;
+    const status = value.agent_status;
+    const workspaceId = value.workspace_id;
+    if (
+      typeof paneId !== "string" ||
+      typeof terminalId !== "string" ||
+      typeof agent !== "string" ||
+      typeof status !== "string" ||
+      typeof workspaceId !== "string"
+    ) {
       throw this.invalidAgent(index);
     }
-
-    return fields as HerdrAgent;
+    return {
+      paneId,
+      terminalId,
+      agent,
+      status,
+      title: typeof value.terminal_title_stripped === "string" ? value.terminal_title_stripped : "",
+      cwd: typeof value.cwd === "string" ? value.cwd : "",
+      workspaceId,
+    };
   }
 
   private mapWorkspace(value: unknown, index: number): HerdrSpace {

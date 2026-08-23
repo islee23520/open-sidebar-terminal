@@ -86,3 +86,19 @@ describe.each(platforms)("HerdrInvocationResolver on %s", (platform) => {
     });
   });
 });
+
+describe("HerdrInvocationResolver PATH", () => {
+  test("prepends common bin dirs so GUI VS Code can find herdr", () => {
+    const invocation = HerdrInvocationResolver.resolve({
+      executablePath: "herdr",
+      session: "",
+      socketPath: "",
+      env: { PATH: "/usr/bin", HOME: "/Users/tester" },
+      platform: "darwin",
+    });
+    expect(invocation.env.PATH.split(":")).toEqual([
+      "/Users/tester/.local/bin",
+      "/usr/bin",
+    ]);
+  });
+});

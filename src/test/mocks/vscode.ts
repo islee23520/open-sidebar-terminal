@@ -49,11 +49,16 @@ const configurationEmitter = new EventEmitter<{
 }>();
 
 export function setConfiguration(values: Readonly<Record<string, unknown>>): void {
-  configuration.clear();
   for (const [key, value] of Object.entries(values)) {
     configuration.set(key, value);
   }
 }
+
+export const ConfigurationTarget = {
+  Global: 1,
+  Workspace: 2,
+  WorkspaceFolder: 3,
+} as const;
 
 export const workspace = {
   workspaceFolders: [{ uri: Uri.file(process.cwd()) }],
@@ -61,6 +66,9 @@ export const workspace = {
     get<T>(key: string, fallback?: T): T {
       return (configuration.get(`${section}.${key}`) as T | undefined) ?? (fallback as T);
     },
+    update: vi.fn(async (key: string, value: unknown) => {
+      configuration.set(`${section}.${key}`, value);
+    }),
   })),
   onDidChangeConfiguration: configurationEmitter.event,
 };
@@ -184,7 +192,7 @@ export const window = {
 };
 
 export function resetMocks(): void {
-  setConfiguration({});
+  configuration.clear();
   commands.registerCommand.mockClear();
   commands.executeCommand.mockClear();
   window.showQuickPick.mockReset();
@@ -221,6 +229,7 @@ export default {
   Uri,
   TreeItem,
   TreeItemCollapsibleState,
+  ConfigurationTarget,
   workspace,
   env,
   window,

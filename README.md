@@ -16,7 +16,7 @@ Run **ULW: Toggle Terminal Location** (`ulw.toggleEditorLocation`) to move the s
 
 ## Attach to a running Herdr agent
 
-Use **ULW: Attach Herdr Session** (`ulw.attachHerdrSession`) to open a QuickPick of live Herdr agents, then choose the session to take over. The Activity Bar **Herdr** view lists the same live **Spaces** (`ulw.herdr.spaces`) and **Agents** (`ulw.herdr.agents`). Clicking an agent (`ulw.herdr.openAgent`) attaches the existing terminal when that agent's folder is this VS Code window, otherwise it opens the folder in a new window. Clicking a space (`ulw.herdr.openSpace`) uses the same folder check and never starts an agent. Refresh with `ulw.herdr.refreshExplorer`.
+Herdr integration is off until you set `ulw.herdr.enabled` (Settings: **ULW › Herdr: Enabled**). After that, use **ULW: Attach Herdr Session** (`ulw.attachHerdrSession`) to open a QuickPick of live Herdr agents, then choose the session to take over. The Activity Bar **Herdr** view lists the same live **Spaces** (`ulw.herdr.spaces`) and **Agents** (`ulw.herdr.agents`). Clicking an agent (`ulw.herdr.openAgent`) attaches the existing terminal when that agent's folder is this VS Code window, otherwise it opens the folder in a new window. Clicking a space (`ulw.herdr.openSpace`) uses the same folder check and never starts an agent. Refresh with `ulw.herdr.refreshExplorer`.
 
 - The picker and trees are populated from the Herdr CLI `agent list` / `workspace list` output, and ULW warns when takeover will replace other direct Herdr clients.
 - Taking control is not auto-restored to those other clients; ULW owns the session only while attached.
@@ -51,6 +51,7 @@ The terminal automatically inherits the active VS Code terminal palette, includi
 | `ulw.scrollback` | `10000` | Scrollback line count |
 | `ulw.shellPath` | empty | Shell executable; empty uses the VS Code or system default |
 | `ulw.shellArgs` | `[]` | Arguments passed to the shell |
+| `ulw.herdr.enabled` | `false` | Turn on Herdr Spaces/Agents and attach. Off until you enable it |
 | `ulw.herdr.executablePath` | `herdr` | Herdr executable path; GUI-launched VS Code may need an explicit absolute path if PATH does not include herdr |
 | `ulw.herdr.socketPath` | empty | Optional Herdr socket path; ignored when a named session is configured |
 | `ulw.herdr.session` | empty | Optional named Herdr session; takes precedence over the socket path |

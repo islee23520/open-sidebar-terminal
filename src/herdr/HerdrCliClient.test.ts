@@ -227,6 +227,39 @@ describe("HerdrCliClient", () => {
     );
   });
 
+  test("keeps agents whose cwd or title is missing", async () => {
+    const client = new HerdrCliClient({
+      invocation,
+      run: () =>
+        result(
+          JSON.stringify({
+            result: {
+              agents: [
+                {
+                  agent: "pi",
+                  agent_status: "working",
+                  pane_id: "w46:p1",
+                  terminal_id: "term-1",
+                  workspace_id: "w46",
+                },
+              ],
+            },
+          }),
+        ),
+    });
+    await expect(client.listAgents()).resolves.toEqual([
+      {
+        paneId: "w46:p1",
+        terminalId: "term-1",
+        agent: "pi",
+        status: "working",
+        title: "",
+        cwd: "",
+        workspaceId: "w46",
+      },
+    ]);
+  });
+
   test("maps workspace list rows for the Spaces tree", async () => {
     const run = vi.fn<HerdrCommandRunner>().mockImplementation(() =>
       result(

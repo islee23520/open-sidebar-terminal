@@ -184,9 +184,15 @@ export class ExtensionLifecycle implements vscode.Disposable {
         },
       ),
       vscode.commands.registerCommand("ulw.attachHerdrSession", async () => {
+        if (!(await this.requireHerdrEnabled())) {
+          return;
+        }
         await this.attachHerdrSession(client, invocation, attachController);
       }),
       vscode.commands.registerCommand("ulw.detachHerdrSession", async () => {
+        if (!(await this.requireHerdrEnabled())) {
+          return;
+        }
         if (attachController.sourceState.phase === "shell") {
           await vscode.window.showInformationMessage(
             "Not attached to a Herdr session",
@@ -206,6 +212,9 @@ export class ExtensionLifecycle implements vscode.Disposable {
       vscode.commands.registerCommand(
         "ulw.herdr.openAgent",
         async (node: HerdrAgentNode) => {
+          if (!(await this.requireHerdrEnabled())) {
+            return;
+          }
           if (await this.openForeignFolderIfNeeded(node.agent.cwd)) {
             return;
           }
@@ -218,6 +227,9 @@ export class ExtensionLifecycle implements vscode.Disposable {
       vscode.commands.registerCommand(
         "ulw.herdr.openSpace",
         async (node: HerdrSpaceNode) => {
+          if (!(await this.requireHerdrEnabled())) {
+            return;
+          }
           const root = inferSpaceRoot(node.space.workspaceId, explorerStore.agents());
           if (!root) {
             await vscode.window.showInformationMessage(
@@ -229,17 +241,18 @@ export class ExtensionLifecycle implements vscode.Disposable {
         },
       ),
       vscode.commands.registerCommand("ulw.herdr.refreshExplorer", async () => {
-        try {
-          await explorerStore.refresh();
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          await vscode.window.showWarningMessage(message);
+        if (!(await this.requireHerdrEnabled())) {
+          return;
         }
+        await this.refreshExplorerStore(explorerStore);
       }),
       explorerStore,
     );
     context.subscriptions.push(this);
     provider.openAtConfiguredLocation();
+    if (this.herdrEnabled()) {
+      void this.refreshExplorerStore(explorerStore);
+    }
 
     return {
       onTerminalStart: startEmitter.event,
@@ -265,7 +278,12 @@ export class ExtensionLifecycle implements vscode.Disposable {
         spaces: explorerStore.spaces(),
         agents: explorerStore.agents(),
       }),
-      refreshExplorer: () => explorerStore.refresh(),
+      refreshExplorer: async () => {
+        if (!this.herdrEnabled()) {
+          return;
+        }
+        await this.refreshExplorerStore(explorerStore);
+      },
     };
   }
 
@@ -280,6 +298,39 @@ export class ExtensionLifecycle implements vscode.Disposable {
     this.provider = undefined;
     this.terminalManager = undefined;
     this.explorerStore = undefined;
+  }
+
+  private herdrEnabled(): boolean {
+    return vscode.workspace.getConfiguration("ulw").get<boolean>("herdr.enabled", false);
+  }
+
+  private async requireHerdrEnabled(): Promise<boolean> {
+    if (this.herdrEnabled()) {
+      return true;
+    }
+    const action = await vscode.window.showInformationMessage(
+      "Turn on ULW Herdr integration to list Spaces/Agents and attach sessions.",
+      "Enable",
+    );
+    if (action !== "Enable") {
+      return false;
+    }
+    await vscode.workspace
+      .getConfiguration("ulw")
+      .update("herdr.enabled", true, vscode.ConfigurationTarget.Global);
+    if (this.explorerStore) {
+      await this.refreshExplorerStore(this.explorerStore);
+    }
+    return true;
+  }
+
+  private async refreshExplorerStore(store: HerdrSnapshotStore): Promise<void> {
+    try {
+      await store.refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await vscode.window.showWarningMessage(message);
+    }
   }
 
   private resolveHerdrInvocation(): HerdrInvocation {

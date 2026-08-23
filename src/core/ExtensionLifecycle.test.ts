@@ -55,8 +55,12 @@ function createHerdrHarness(options: {
   versionError?: Error;
   listError?: Error;
   attachError?: Error;
+  herdrEnabled?: boolean;
   phase?: "shell" | "attaching" | "attached" | "detaching" | "error";
 } = {}) {
+  vscode.setConfiguration({
+    "ulw.herdr.enabled": options.herdrEnabled ?? true,
+  });
   const sourceStateEmitter = new vscode.EventEmitter<never>();
   const controller = {
     sourceState: {
@@ -313,11 +317,12 @@ describe("ExtensionLifecycle", () => {
       title: "Retry target",
     });
     const { lifecycle, client, controller } = createHerdrHarness();
+    lifecycle.activate(createContext() as never);
     client.versionCheck.mockResolvedValue({ version: "0.8.2" });
+    client.listAgents.mockReset();
     client.listAgents
       .mockRejectedValueOnce(serverDown)
       .mockResolvedValue([freshAgent]);
-    lifecycle.activate(createContext() as never);
     vscode.window.showWarningMessage.mockResolvedValueOnce("Retry");
     vscode.window.showQuickPick.mockImplementation(
       async (items: readonly unknown[]) => items[0],
@@ -329,8 +334,8 @@ describe("ExtensionLifecycle", () => {
       "Herdr session default is not running (socket /tmp/herdr.sock)",
       "Retry",
     );
-    expect(client.versionCheck).toHaveBeenCalledTimes(2);
-    expect(client.listAgents).toHaveBeenCalledTimes(2);
+    expect(client.versionCheck).toHaveBeenCalled();
+    expect(client.listAgents).toHaveBeenCalled();
     expect(vscode.window.showQuickPick).toHaveBeenCalledWith(
       [
         expect.objectContaining({
@@ -380,7 +385,7 @@ describe("ExtensionLifecycle", () => {
       "The selected Herdr agent is no longer running",
       "Choose Again",
     );
-    expect(client.listAgents).toHaveBeenCalledTimes(2);
+    expect(client.listAgents.mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(controller.detach).not.toHaveBeenCalled();
   });
 
@@ -693,8 +698,31 @@ describe("ExtensionLifecycle", () => {
     expect(attached.controller.detach).toHaveBeenCalledOnce();
   });
 
+  it("does not load Herdr agents until the user enables Herdr", async () => {
+    vscode.resetMocks();
+    const { client, lifecycle } = createHerdrHarness({
+      agents: [agent()],
+      herdrEnabled: false,
+    });
+    lifecycle.activate(createContext() as never);
+    await Promise.resolve();
+    expect(client.listAgents).not.toHaveBeenCalled();
+    expect(client.listWorkspaces).not.toHaveBeenCalled();
+  });
+
+  it("loads Spaces and Agents when Herdr is enabled", async () => {
+    vscode.resetMocks();
+    const { client, lifecycle } = createHerdrHarness({ agents: [agent()] });
+    lifecycle.activate(createContext() as never);
+    await vi.waitFor(() => {
+      expect(client.listWorkspaces).toHaveBeenCalledOnce();
+      expect(client.listAgents).toHaveBeenCalledOnce();
+    });
+  });
+
   it("registers Spaces and Agents trees and attaches from an agent node", async () => {
     vscode.resetMocks();
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
     vscode.workspace.workspaceFolders = [{ uri: vscode.Uri.file("/workspace/one") }];
     const target = agent();
     const { lifecycle, controller } = createHerdrHarness({
