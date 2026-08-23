@@ -695,6 +695,7 @@ describe("ExtensionLifecycle", () => {
 
   it("registers Spaces and Agents trees and attaches from an agent node", async () => {
     vscode.resetMocks();
+    vscode.workspace.workspaceFolders = [{ uri: vscode.Uri.file("/workspace/one") }];
     const target = agent();
     const { lifecycle, controller } = createHerdrHarness({
       agents: [target],
@@ -750,5 +751,69 @@ describe("ExtensionLifecycle", () => {
       },
     });
     expect(controller.attach).toHaveBeenCalledTimes(1);
+    expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith(
+      "vscode.openFolder",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("opens another space folder in a new window instead of attaching", async () => {
+    vscode.resetMocks();
+    const foreign = agent({
+      cwd: "/tmp/other-space",
+      workspaceId: "workspace-2",
+      terminalId: "terminal-2",
+    });
+    const { lifecycle, controller } = createHerdrHarness({
+      agents: [foreign],
+      workspaces: [
+        {
+          workspaceId: "workspace-2",
+          label: "other",
+          status: "idle",
+          paneCount: 1,
+        },
+      ],
+    });
+    lifecycle.activate(createContext() as never);
+    await commandHandler<() => Promise<void>>("ulw.herdr.refreshExplorer")();
+
+    await commandHandler<(node: {
+      kind: "space";
+      space: {
+        readonly workspaceId: string;
+        readonly label: string;
+        readonly status: string;
+        readonly paneCount: number;
+      };
+    }) => Promise<void>>("ulw.herdr.openSpace")({
+      kind: "space",
+      space: {
+        workspaceId: "workspace-2",
+        label: "other",
+        status: "idle",
+        paneCount: 1,
+      },
+    });
+    expect(controller.attach).not.toHaveBeenCalled();
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
+      "vscode.openFolder",
+      expect.objectContaining({ fsPath: expect.stringContaining("other-space") }),
+      { forceNewWindow: true },
+    );
+
+    await commandHandler<(node: {
+      kind: "agent";
+      agent: HerdrAgent;
+    }) => Promise<void>>("ulw.herdr.openAgent")({
+      kind: "agent",
+      agent: foreign,
+    });
+    expect(controller.attach).not.toHaveBeenCalled();
+    const folderOpens = vscode.commands.executeCommand.mock.calls.filter(
+      (call) => call[0] === "vscode.openFolder",
+    );
+    expect(folderOpens).toHaveLength(2);
   });
 });

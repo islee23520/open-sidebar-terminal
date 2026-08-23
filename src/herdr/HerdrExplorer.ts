@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import * as vscode from "vscode";
 import type { HerdrAgent, HerdrSpace } from "./types";
 
@@ -104,4 +105,36 @@ export class HerdrAgentsTreeProvider
 export function agentAttachLabel(agent: HerdrAgent): string {
   const title = agent.title.trim();
   return title || `${agent.agent} \u00b7 ${agent.paneId}`;
+}
+
+export function normalizeRoot(value: string): string {
+  const resolved = path.resolve(value);
+  const parsed = path.parse(resolved);
+  const withoutTrailingSeparator =
+    resolved.length > parsed.root.length
+      ? resolved.replace(/[\\/]+$/, "")
+      : resolved;
+  return process.platform === "win32"
+    ? withoutTrailingSeparator.toLowerCase()
+    : withoutTrailingSeparator;
+}
+
+export function inferSpaceRoot(
+  workspaceId: string,
+  agents: readonly HerdrAgent[],
+): string | undefined {
+  const cwd = agents.find(
+    (agent) => agent.workspaceId === workspaceId && agent.cwd.length > 0,
+  )?.cwd;
+  return cwd ? path.resolve(cwd) : undefined;
+}
+
+export function isCurrentWindowRoot(
+  root: string,
+  folders: readonly { readonly uri: { readonly fsPath: string } }[] | undefined,
+): boolean {
+  const normalized = normalizeRoot(root);
+  return (folders ?? []).some(
+    (folder) => normalizeRoot(folder.uri.fsPath) === normalized,
+  );
 }

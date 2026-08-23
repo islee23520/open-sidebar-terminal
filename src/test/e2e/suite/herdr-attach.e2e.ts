@@ -354,7 +354,7 @@ suite("Live Herdr terminal attach", () => {
         agent: "shell",
         status: "idle",
         title: "ulw-e2e",
-        cwd: workspace.tempDir,
+        cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? workspace.tempDir,
         workspaceId: workspace.workspaceId,
       },
     });

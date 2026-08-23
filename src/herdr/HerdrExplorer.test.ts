@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import * as path from "node:path";
 import {
   HerdrAgentsTreeProvider,
   HerdrSnapshotStore,
   HerdrSpacesTreeProvider,
+  inferSpaceRoot,
+  isCurrentWindowRoot,
 } from "./HerdrExplorer";
 import type { HerdrAgent, HerdrSpace } from "./types";
 
@@ -87,6 +90,26 @@ describe("HerdrExplorer", () => {
     await store.refresh();
     expect(await new HerdrSpacesTreeProvider(store).getChildren()).toEqual([]);
     expect(await new HerdrAgentsTreeProvider(store).getChildren()).toEqual([]);
+  });
+
+  it("infers a space root from the first agent cwd in that workspace", () => {
+    expect(
+      inferSpaceRoot("w46", [
+        agent({ workspaceId: "w2K", cwd: "/other" }),
+        agent({ cwd: "/Users/ilseoblee/workspace/ULW/ulwcode" }),
+      ]),
+    ).toBe(path.resolve("/Users/ilseoblee/workspace/ULW/ulwcode"));
+    expect(inferSpaceRoot("w99", [agent()])).toBeUndefined();
+  });
+
+  it("treats the current VS Code folder as the current space", () => {
+    const root = path.resolve("/repo");
+    expect(
+      isCurrentWindowRoot(root, [{ uri: { fsPath: "/repo" } }]),
+    ).toBe(true);
+    expect(
+      isCurrentWindowRoot(root, [{ uri: { fsPath: "/other" } }]),
+    ).toBe(false);
   });
 
   it("keeps the previous snapshot when refresh fails", async () => {

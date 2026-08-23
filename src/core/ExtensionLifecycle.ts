@@ -24,6 +24,8 @@ import {
   HerdrAgentsTreeProvider,
   HerdrSnapshotStore,
   HerdrSpacesTreeProvider,
+  inferSpaceRoot,
+  isCurrentWindowRoot,
   type HerdrAgentNode,
   type HerdrSpaceNode,
 } from "../herdr/HerdrExplorer";
@@ -204,6 +206,9 @@ export class ExtensionLifecycle implements vscode.Disposable {
       vscode.commands.registerCommand(
         "ulw.herdr.openAgent",
         async (node: HerdrAgentNode) => {
+          if (await this.openForeignFolderIfNeeded(node.agent.cwd)) {
+            return;
+          }
           await this.attachSelected(attachController, {
             label: agentAttachLabel(node.agent),
             agent: node.agent,
@@ -212,7 +217,16 @@ export class ExtensionLifecycle implements vscode.Disposable {
       ),
       vscode.commands.registerCommand(
         "ulw.herdr.openSpace",
-        async (_node: HerdrSpaceNode) => undefined,
+        async (node: HerdrSpaceNode) => {
+          const root = inferSpaceRoot(node.space.workspaceId, explorerStore.agents());
+          if (!root) {
+            await vscode.window.showInformationMessage(
+              `No folder is associated with ${node.space.label}`,
+            );
+            return;
+          }
+          await this.openForeignFolderIfNeeded(root);
+        },
       ),
       vscode.commands.registerCommand("ulw.herdr.refreshExplorer", async () => {
         try {
@@ -437,6 +451,19 @@ export class ExtensionLifecycle implements vscode.Disposable {
         .get<string>("herdr.session", "")
         .trim() || "default"
     );
+  }
+
+  private async openForeignFolderIfNeeded(root: string): Promise<boolean> {
+    if (root.trim().length === 0) {
+      return false;
+    }
+    if (isCurrentWindowRoot(root, vscode.workspace.workspaceFolders)) {
+      return false;
+    }
+    await vscode.commands.executeCommand("vscode.openFolder", vscode.Uri.file(root), {
+      forceNewWindow: true,
+    });
+    return true;
   }
 
   private isStaleTargetError(error: unknown): boolean {
