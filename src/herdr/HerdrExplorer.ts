@@ -20,6 +20,8 @@ export interface HerdrAgentNode {
 export class HerdrSnapshotStore {
   private cachedSpaces: readonly HerdrSpace[] = [];
   private cachedAgents: readonly HerdrAgent[] = [];
+  private loaded = false;
+  private inflight: Promise<void> | undefined;
   private readonly changeEmitter = new vscode.EventEmitter<void>();
 
   public readonly onDidChangeTreeData = this.changeEmitter.event;
@@ -34,6 +36,20 @@ export class HerdrSnapshotStore {
     return this.cachedAgents;
   }
 
+  public async ensureLoaded(): Promise<void> {
+    if (this.loaded) {
+      return;
+    }
+    if (this.inflight) {
+      await this.inflight;
+      return;
+    }
+    this.inflight = this.refresh().finally(() => {
+      this.inflight = undefined;
+    });
+    await this.inflight;
+  }
+
   public async refresh(): Promise<void> {
     const [spaces, agents] = await Promise.all([
       this.source.listWorkspaces(),
@@ -41,6 +57,7 @@ export class HerdrSnapshotStore {
     ]);
     this.cachedSpaces = spaces;
     this.cachedAgents = agents;
+    this.loaded = true;
     this.changeEmitter.fire();
   }
 
@@ -70,7 +87,8 @@ export class HerdrSpacesTreeProvider
     return item;
   }
 
-  public getChildren(): HerdrSpaceNode[] {
+  public async getChildren(): Promise<HerdrSpaceNode[]> {
+    await this.store.ensureLoaded();
     return this.store.spaces().map((space) => ({ kind: "space", space }));
   }
 }
@@ -97,7 +115,8 @@ export class HerdrAgentsTreeProvider
     return item;
   }
 
-  public getChildren(): HerdrAgentNode[] {
+  public async getChildren(): Promise<HerdrAgentNode[]> {
+    await this.store.ensureLoaded();
     return this.store.agents().map((agent) => ({ kind: "agent", agent }));
   }
 }

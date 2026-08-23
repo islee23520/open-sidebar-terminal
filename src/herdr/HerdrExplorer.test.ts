@@ -82,6 +82,21 @@ describe("HerdrExplorer", () => {
     });
   });
 
+  it("refreshes once when the tree is first expanded", async () => {
+    const listWorkspaces = vi.fn(async () => [space()]);
+    const listAgents = vi.fn(async () => [agent()]);
+    const store = new HerdrSnapshotStore({ listWorkspaces, listAgents });
+    const provider = new HerdrAgentsTreeProvider(store);
+
+    const children = await provider.getChildren();
+    expect(listAgents).toHaveBeenCalledOnce();
+    expect(listWorkspaces).toHaveBeenCalledOnce();
+    expect(children).toHaveLength(1);
+
+    await provider.getChildren();
+    expect(listAgents).toHaveBeenCalledOnce();
+  });
+
   it("returns no children when Herdr lists are empty", async () => {
     const store = new HerdrSnapshotStore({
       listWorkspaces: async () => [],

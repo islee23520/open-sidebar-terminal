@@ -247,6 +247,14 @@ export class ExtensionLifecycle implements vscode.Disposable {
         await this.refreshExplorerStore(explorerStore);
       }),
       explorerStore,
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (!event.affectsConfiguration("ulw.herdr")) {
+          return;
+        }
+        if (this.herdrEnabled()) {
+          void this.refreshExplorerStore(explorerStore);
+        }
+      }),
     );
     context.subscriptions.push(this);
     provider.openAtConfiguredLocation();
@@ -327,8 +335,12 @@ export class ExtensionLifecycle implements vscode.Disposable {
   private async refreshExplorerStore(store: HerdrSnapshotStore): Promise<void> {
     try {
       await store.refresh();
+      console.info(
+        `[ULW Herdr] listed ${store.spaces().length} spaces, ${store.agents().length} agents`,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      console.error(`[ULW Herdr] explorer refresh failed: ${message}`);
       await vscode.window.showWarningMessage(message);
     }
   }

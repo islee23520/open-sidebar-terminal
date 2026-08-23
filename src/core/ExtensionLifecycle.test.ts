@@ -720,6 +720,24 @@ describe("ExtensionLifecycle", () => {
     });
   });
 
+  it("loads Spaces and Agents after the user enables Herdr at runtime", async () => {
+    vscode.resetMocks();
+    const { client, lifecycle } = createHerdrHarness({
+      agents: [agent()],
+      herdrEnabled: false,
+    });
+    lifecycle.activate(createContext() as never);
+    await Promise.resolve();
+    expect(client.listAgents).not.toHaveBeenCalled();
+
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    vscode.fireConfigurationChange("ulw.herdr.enabled");
+    await vi.waitFor(() => {
+      expect(client.listWorkspaces).toHaveBeenCalledOnce();
+      expect(client.listAgents).toHaveBeenCalledOnce();
+    });
+  });
+
   it("registers Spaces and Agents trees and attaches from an agent node", async () => {
     vscode.resetMocks();
     vscode.setConfiguration({ "ulw.herdr.enabled": true });

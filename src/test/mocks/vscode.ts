@@ -75,7 +75,8 @@ export const workspace = {
 
 export function fireConfigurationChange(section: string): void {
   configurationEmitter.fire({
-    affectsConfiguration: (candidate) => candidate === section,
+    affectsConfiguration: (candidate) =>
+      section === candidate || section.startsWith(`${candidate}.`),
   });
 }
 
