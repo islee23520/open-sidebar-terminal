@@ -39,9 +39,14 @@ function resolveLocalVsCodeExecutable() {
 
 const localVsCodeExecutable = resolveLocalVsCodeExecutable();
 
+const packagedExtensionPath = process.env.ULW_E2E_EXTENSION_PATH;
+
 const shared = {
   version: "stable",
   workspaceFolder: "src/test/e2e/fixtures/workspace",
+  ...(packagedExtensionPath
+    ? { extensionDevelopmentPath: packagedExtensionPath }
+    : {}),
   ...(localVsCodeExecutable
     ? {
         useInstallation: {

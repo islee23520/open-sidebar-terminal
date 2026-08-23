@@ -69,4 +69,21 @@ suite("Native sidebar terminal", () => {
     assert.strictEqual(api.isTerminalRunning(), true);
     assert.strictEqual(api.terminalCount(), 1);
   });
+
+  test("registers Herdr explorer commands after activate", async () => {
+    const extension = vscode.extensions.getExtension<UlwExtensionApi>(
+      "islee23520.opencode-sidebar-tui",
+    );
+    assert.ok(extension, "Extension should be available in the test host");
+    await extension.activate();
+    const commands = await vscode.commands.getCommands(true);
+    assert.ok(
+      commands.includes("ulw.herdr.refreshExplorer"),
+      "ulw.herdr.refreshExplorer must be registered after activate",
+    );
+    assert.ok(
+      commands.includes("ulw.herdr.openAgent"),
+      "ulw.herdr.openAgent must be registered after activate",
+    );
+  });
 });

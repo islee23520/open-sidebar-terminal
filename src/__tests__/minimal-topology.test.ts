@@ -1,8 +1,10 @@
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "child_process";
 
 type Manifest = {
+  readonly version: string;
   readonly activationEvents?: readonly string[];
   readonly contributes: {
     readonly commands?: readonly unknown[];
@@ -20,6 +22,7 @@ type Manifest = {
   };
   readonly dependencies: Readonly<Record<string, string>>;
   readonly devDependencies: Readonly<Record<string, string>>;
+  readonly scripts: Readonly<Record<string, string>>;
 };
 
 function readManifest(): Manifest {
@@ -162,5 +165,29 @@ describe("minimal sidebar terminal topology", () => {
       "@xterm/xterm",
       ]),
     );
+  });
+
+  it("never packages a VSIX without runtime dependencies", () => {
+    const scripts = JSON.stringify(readManifest().scripts);
+    expect(scripts).not.toMatch(/--no-dependencies/);
+    const installer = readFileSync(join(process.cwd(), "dev-install.sh"), "utf8");
+    expect(installer).not.toMatch(/--no-dependencies/);
+  });
+
+  it("packages node-pty inside the VSIX because webpack leaves it external", () => {
+    const webpack = readFileSync(join(process.cwd(), "webpack.config.js"), "utf8");
+    expect(webpack).toMatch(/"node-pty":\s*"commonjs node-pty"/);
+    const vsixPath = join(
+      process.cwd(),
+      `opencode-sidebar-tui-${readManifest().version}.vsix`,
+    );
+    if (!existsSync(vsixPath)) {
+      return;
+    }
+    const listing = execFileSync("unzip", ["-Z1", vsixPath], {
+      encoding: "utf8",
+    });
+    expect(listing).toMatch(/extension\/node_modules\/node-pty\//);
+    expect(listing).toMatch(/node-pty\/(?:prebuilds|build|lib)\//);
   });
 });

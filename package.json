@@ -266,6 +266,7 @@
     "test:all": "npm run test && npm run test:e2e",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "package:vsix": "npm run package && npx @vscode/vsce package --allow-star-activation && node script/qa/check-vsix-node-pty.mjs",
     "build-and-install": "npx @vscode/vsce package -o build/extension.vsix && code --install-extension build/extension.vsix --force"
   },
   "devDependencies": {
