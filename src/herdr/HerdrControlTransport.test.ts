@@ -110,40 +110,20 @@ describe("HerdrControlTransport", () => {
         bytes: Buffer.from("ls\r", "utf8").toString("base64"),
       },
       {
-        type: "terminal.scroll",
-        direction: "up",
-        lines: 3,
-        source: "wheel",
-        column: 4,
-        row: 7,
-        modifiers: 0,
+        type: "terminal.input",
+        bytes: Buffer.from("\x1b[<64;4;7M", "utf8").toString("base64"),
       },
       {
-        type: "terminal.scroll",
-        direction: "down",
-        lines: 3,
-        source: "wheel",
-        column: 8,
-        row: 9,
-        modifiers: 0,
+        type: "terminal.input",
+        bytes: Buffer.from("\x1b[<65;8;9M", "utf8").toString("base64"),
       },
       {
-        type: "terminal.scroll",
-        direction: "up",
-        lines: 24,
-        source: "page_key",
-        column: 0,
-        row: 0,
-        modifiers: 0,
+        type: "terminal.input",
+        bytes: Buffer.from("\x1b[5~", "utf8").toString("base64"),
       },
       {
-        type: "terminal.scroll",
-        direction: "down",
-        lines: 24,
-        source: "page_key",
-        column: 0,
-        row: 0,
-        modifiers: 0,
+        type: "terminal.input",
+        bytes: Buffer.from("\x1b[6~", "utf8").toString("base64"),
       },
       {
         type: "terminal.input",
@@ -151,13 +131,8 @@ describe("HerdrControlTransport", () => {
       },
       { type: "terminal.resize", cols: 100, rows: 40 },
       {
-        type: "terminal.scroll",
-        direction: "up",
-        lines: 40,
-        source: "page_key",
-        column: 0,
-        row: 0,
-        modifiers: 0,
+        type: "terminal.input",
+        bytes: Buffer.from("\x1b[5~", "utf8").toString("base64"),
       },
       { type: "terminal.release" },
     ]);
@@ -188,6 +163,92 @@ describe("HerdrControlTransport", () => {
       ],
       { env: { PATH: "/bin" }, stdio: ["pipe", "pipe", "pipe"] },
     );
+  });
+
+  test("spawn inherits the ssh forward sockets through the invocation env", () => {
+    const forwardInvocation = HerdrInvocationResolver.resolve({
+      executablePath: "/opt/herdr",
+      session: "team",
+      remoteTarget: "u@h",
+      forwardSockets: {
+        apiSocketPath: "/tmp/f.sock",
+        clientSocketPath: "/tmp/f-client.sock",
+      },
+      socketPath: undefined,
+      env: { PATH: "/bin" },
+      platform: "darwin",
+    });
+    const { spawnFn } = setup({ invocation: forwardInvocation });
+
+    expect(spawnFn).toHaveBeenCalledWith(
+      "/opt/herdr",
+      [
+        "terminal",
+        "session",
+        "control",
+        "terminal-123",
+        "--takeover",
+        "--cols",
+        "80",
+        "--rows",
+        "24",
+      ],
+      {
+        env: {
+          PATH: "/bin",
+          HERDR_SOCKET_PATH: "/tmp/f.sock",
+          HERDR_CLIENT_SOCKET_PATH: "/tmp/f-client.sock",
+        },
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+  });
+
+  test("scroll sends terminal.scroll then same-size resize checkpoint", () => {
+    const { child, transport } = setup();
+    child.stdout.write(frame("ready", true, 1));
+
+    transport.scroll({
+      direction: "up",
+      lines: 3,
+      source: "wheel",
+      column: 4,
+      row: 7,
+      modifiers: 0,
+    });
+    transport.resize(100, 40);
+    transport.scroll({
+      direction: "down",
+      lines: 14,
+      source: "page_key",
+      column: 0,
+      row: 0,
+      modifiers: 0,
+    });
+
+    expect(commands(child)).toEqual([
+      {
+        type: "terminal.scroll",
+        direction: "up",
+        lines: 3,
+        source: "wheel",
+        column: 4,
+        row: 7,
+        modifiers: 0,
+      },
+      { type: "terminal.resize", cols: 80, rows: 24 },
+      { type: "terminal.resize", cols: 100, rows: 40 },
+      {
+        type: "terminal.scroll",
+        direction: "down",
+        lines: 14,
+        source: "page_key",
+        column: 0,
+        row: 0,
+        modifiers: 0,
+      },
+      { type: "terminal.resize", cols: 100, rows: 40 },
+    ]);
   });
 
   test("preserves UTF-8 code points split across decoded frame boundaries", () => {

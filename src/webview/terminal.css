@@ -26,7 +26,7 @@ body,
 }
 
 #terminal-container .xterm-viewport {
-  overflow-y: auto;
+  overflow-y: hidden;
   background-color: var(
     --vscode-terminal-background,
     var(--vscode-panel-background, var(--vscode-editor-background, #1e1e1e))

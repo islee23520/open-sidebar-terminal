@@ -32,6 +32,7 @@ class FakeTransport implements TerminalTransport {
   };
   public readonly onExit = this.exitEmitter.event;
   public readonly write = vi.fn();
+  public readonly scroll = vi.fn();
   public readonly resize = vi.fn();
   public readonly close = vi.fn(
     async (_reason: "release" | "shutdown"): Promise<void> => undefined,

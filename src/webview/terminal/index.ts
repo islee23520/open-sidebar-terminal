@@ -3,6 +3,12 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import type { HostMessage } from "../../types";
 import { postMessage } from "../shared/vscode-api";
+import {
+  bindHerdrRemoteScroll,
+  herdrScrollback,
+  shouldInterceptHerdrScroll,
+} from "./herdrScroll";
+import { createStatusBadge } from "./statusBadge";
 import { readTerminalTheme, watchTerminalTheme } from "./theme";
 import "./terminal.css";
 
@@ -26,28 +32,17 @@ export function isSourceStateMessage(
     return false;
   }
   const candidate = msg as Record<string, unknown>;
-  if (candidate.type !== "sourceState") {
-    return false;
-  }
-  if (candidate.source !== "shell" && candidate.source !== "herdr") {
-    return false;
-  }
-  if (
-    candidate.phase !== "shell" &&
-    candidate.phase !== "attaching" &&
-    candidate.phase !== "attached" &&
-    candidate.phase !== "detaching" &&
-    candidate.phase !== "error"
-  ) {
-    return false;
-  }
-  if (candidate.label !== undefined && typeof candidate.label !== "string") {
-    return false;
-  }
-  if (candidate.message !== undefined && typeof candidate.message !== "string") {
-    return false;
-  }
-  return true;
+  const sourceOk = candidate.source === "shell" || candidate.source === "herdr";
+  const phaseOk =
+    candidate.phase === "shell" ||
+    candidate.phase === "attaching" ||
+    candidate.phase === "attached" ||
+    candidate.phase === "detaching" ||
+    candidate.phase === "error";
+  const labelOk = candidate.label === undefined || typeof candidate.label === "string";
+  const messageOk =
+    candidate.message === undefined || typeof candidate.message === "string";
+  return candidate.type === "sourceState" && sourceOk && phaseOk && labelOk && messageOk;
 }
 
 function readRendererPreference(): RendererPreference {
@@ -105,6 +100,26 @@ export function createTerminalView(container: HTMLElement): TerminalView {
     });
   }
 
+  let herdrAttached = false;
+  let configuredScrollback = 10000;
+  let detachCustomWheelHandler: (() => void) | undefined;
+  const applyHerdrBufferMode = (): void => {
+    terminal.options.scrollback = herdrScrollback(herdrAttached, configuredScrollback);
+    detachCustomWheelHandler?.();
+    detachCustomWheelHandler = undefined;
+    if (herdrAttached) {
+      terminal.attachCustomWheelEventHandler(() => false);
+      detachCustomWheelHandler = () => {
+        terminal.attachCustomWheelEventHandler(() => true);
+      };
+    }
+  };
+  const unbindHerdrScroll = bindHerdrRemoteScroll(
+    container,
+    () => herdrAttached,
+    (gesture) => postMessage({ type: "scroll", ...gesture }),
+    () => ({ cols: terminal.cols, rows: terminal.rows }),
+  );
   const inputDisposable = terminal.onData((data) => {
     postMessage({ type: "input", data });
   });
@@ -178,34 +193,7 @@ export function createTerminalView(container: HTMLElement): TerminalView {
   };
   container.addEventListener("paste", handlePasteEvent);
 
-  let badgeElement: HTMLDivElement | undefined;
-  const updateBadge = (message: Extract<HostMessage, { type: "sourceState" }>) => {
-    if (message.phase === "shell") {
-      if (badgeElement) {
-        badgeElement.remove();
-        badgeElement = undefined;
-      }
-      return;
-    }
-
-    if (!badgeElement) {
-      badgeElement = document.createElement("div");
-      badgeElement.className = "ulw-status-badge";
-      badgeElement.setAttribute("role", "status");
-      badgeElement.setAttribute("aria-live", "polite");
-      container.appendChild(badgeElement);
-    }
-
-    if (message.phase === "error") {
-      badgeElement.classList.add("error");
-      badgeElement.textContent = message.message ? `Error: ${message.message}` : "Error attaching";
-    } else {
-      badgeElement.classList.remove("error");
-      const phaseText = message.phase.charAt(0).toUpperCase() + message.phase.slice(1);
-      badgeElement.textContent = message.label ? `${phaseText}: ${message.label}` : phaseText;
-    }
-  };
-
+  const statusBadge = createStatusBadge(container);
   const messageHandler = (event: MessageEvent<HostMessage>) => {
     const message = event.data;
     switch (message.type) {
@@ -222,7 +210,8 @@ export function createTerminalView(container: HTMLElement): TerminalView {
         terminal.options.fontFamily = message.fontFamily;
         terminal.options.cursorBlink = message.cursorBlink;
         terminal.options.cursorStyle = message.cursorStyle;
-        terminal.options.scrollback = message.scrollback;
+        configuredScrollback = message.scrollback;
+        applyHerdrBufferMode();
         fitAndRepaintUnlessImeComposing();
         break;
       case "focus":
@@ -236,7 +225,9 @@ export function createTerminalView(container: HTMLElement): TerminalView {
         break;
       case "sourceState":
         if (isSourceStateMessage(message)) {
-          updateBadge(message);
+          herdrAttached = shouldInterceptHerdrScroll(message.source, message.phase);
+          applyHerdrBufferMode();
+          statusBadge.update(message);
         }
         break;
       default: {
@@ -257,6 +248,7 @@ export function createTerminalView(container: HTMLElement): TerminalView {
     terminal,
     dispose() {
       window.removeEventListener("message", messageHandler);
+      unbindHerdrScroll();
       container.removeEventListener("mouseup", copySelection);
       container.removeEventListener("mousedown", focusTerminal);
       container.removeEventListener("paste", handlePasteEvent);
@@ -266,6 +258,7 @@ export function createTerminalView(container: HTMLElement): TerminalView {
       resizeObserver.disconnect();
       visibilityObserver.disconnect();
       disposeThemeWatcher();
+      detachCustomWheelHandler?.();
       inputDisposable.dispose();
       resizeDisposable.dispose();
       terminal.dispose();

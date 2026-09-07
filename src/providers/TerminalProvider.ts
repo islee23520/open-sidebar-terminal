@@ -144,7 +144,7 @@ export class TerminalProvider
     const sessionId = herdrSessionId(target.terminalId);
     const existing = this.herdrSessions.get(sessionId);
     if (existing) {
-      this.activeTerminalId = sessionId;
+      this.focusHerdrSession(sessionId);
       existing.panel.reveal(vscode.ViewColumn.Active);
       if (existing.controller.sourceState.phase === "shell") {
         await attach(target);
@@ -180,14 +180,22 @@ export class TerminalProvider
     const controller = createController(sessionId, presenter);
     const session: HerdrEditorSession = { panel, controller, target };
     this.herdrSessions.set(sessionId, session);
-    this.activeTerminalId = sessionId;
+    this.focusHerdrSession(sessionId);
     const messageSubscription = panel.webview.onDidReceiveMessage(
       (message: WebviewMessage) => {
         this.handleHerdrSessionMessage(sessionId, message);
       },
     );
+    const viewStateSubscription = panel.onDidChangeViewState(
+      ({ webviewPanel }) => {
+        if (webviewPanel.active) {
+          this.focusHerdrSession(sessionId);
+        }
+      },
+    );
     const disposeSubscription = panel.onDidDispose(() => {
       messageSubscription.dispose();
+      viewStateSubscription.dispose();
       disposeSubscription.dispose();
       const current = this.herdrSessions.get(sessionId);
       if (current?.panel !== panel) {
@@ -196,7 +204,9 @@ export class TerminalProvider
       this.herdrSessions.delete(sessionId);
       current.controller.dispose();
       if (this.activeTerminalId === sessionId) {
-        this.activeTerminalId = TERMINAL_ID;
+        const remaining = [...this.herdrSessions.keys()];
+        this.activeTerminalId =
+          remaining.length > 0 ? remaining[remaining.length - 1] : TERMINAL_ID;
       }
     });
     panel.webview.html = this.renderHtml(panel.webview);
@@ -209,6 +219,16 @@ export class TerminalProvider
 
   public activeSessionId(): string {
     return this.activeTerminalId;
+  }
+
+  private focusHerdrSession(sessionId: string): void {
+    const session = this.herdrSessions.get(sessionId);
+    if (!session) {
+      return;
+    }
+    this.herdrSessions.delete(sessionId);
+    this.herdrSessions.set(sessionId, session);
+    this.activeTerminalId = sessionId;
   }
 
   public postReset(): void {
@@ -354,6 +374,12 @@ export class TerminalProvider
         }
         this.terminalManager.write(TERMINAL_ID, message.data);
         break;
+      case "scroll":
+        if (source !== this.activeLocation) {
+          return;
+        }
+        this.terminalManager.scroll(TERMINAL_ID, message);
+        break;
       case "resize":
         if (source !== this.activeLocation) {
           return;
@@ -475,7 +501,7 @@ export class TerminalProvider
     switch (message.type) {
       case "ready": {
         const source = this.terminalManager.activeSource(sessionId);
-        if (source !== undefined) {
+        if (source !== undefined && sessionId === this.activeTerminalId) {
           this.terminalManager.resize(sessionId, message.cols, message.rows);
         }
         void session.panel.webview.postMessage({ type: "config", ...this.readConfig() });
@@ -489,10 +515,19 @@ export class TerminalProvider
         break;
       }
       case "input":
-        this.terminalManager.write(sessionId, message.data);
+        if (sessionId === this.activeTerminalId) {
+          this.terminalManager.write(sessionId, message.data);
+        }
+        break;
+      case "scroll":
+        if (sessionId === this.activeTerminalId) {
+          this.terminalManager.scroll(sessionId, message);
+        }
         break;
       case "resize":
-        this.terminalManager.resize(sessionId, message.cols, message.rows);
+        if (sessionId === this.activeTerminalId) {
+          this.terminalManager.resize(sessionId, message.cols, message.rows);
+        }
         break;
       case "copy":
         if (message.text) {

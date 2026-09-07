@@ -44,6 +44,11 @@ vi.mock("@xterm/xterm", () => ({
     public readonly reset = terminalReset;
     public readonly getSelection = terminalGetSelection;
     public readonly refresh = terminalRefresh;
+    public attachCustomWheelEventHandler = vi.fn();
+    public modes = {
+      mouseTrackingMode: "none" as const,
+      applicationCursorKeysMode: false,
+    };
     public textarea: HTMLTextAreaElement | undefined;
     private container?: HTMLElement;
     public constructor(options: Record<string, unknown>) {
@@ -142,6 +147,9 @@ const { createTerminalView, DEFAULT_FONT_FAMILY, isSourceStateMessage } = await 
 describe("createTerminalView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    for (const key of Object.keys(terminalOptions)) {
+      delete terminalOptions[key];
+    }
     dataListener = undefined;
     resizeListener = undefined;
     terminalConstructorOptions = undefined;
@@ -383,6 +391,62 @@ describe("createTerminalView", () => {
       );
 
       expect(container.querySelector(".ulw-status-badge")).toBeNull();
+    });
+
+    it("forwards wheel as Herdr scroll gestures while attached", () => {
+      const container = document.createElement("div");
+      createTerminalView(container);
+      const dispatchWheel = (): WheelEvent => {
+        const event = new WheelEvent("wheel", {
+          deltaY: -120,
+          bubbles: true,
+          cancelable: true,
+          clientX: 0,
+          clientY: 0,
+        });
+        Object.defineProperty(event, "target", { value: container });
+        window.dispatchEvent(event);
+        return event;
+      };
+
+      expect(dispatchWheel().defaultPrevented).toBe(false);
+      expect(postMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: "scroll" }),
+      );
+
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "sourceState",
+            source: "herdr",
+            phase: "attached",
+            label: "probe",
+          },
+        }),
+      );
+      postMessage.mockClear();
+
+      expect(terminalOptions.scrollback).toBe(0);
+      expect(dispatchWheel().defaultPrevented).toBe(true);
+      expect(postMessage).toHaveBeenCalledWith({
+        type: "scroll",
+        direction: "up",
+        lines: 3,
+        source: "wheel",
+        column: 1,
+        row: 1,
+        modifiers: 0,
+      });
+
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "sourceState", source: "shell", phase: "shell" },
+        }),
+      );
+      postMessage.mockClear();
+      expect(terminalOptions.scrollback).toBe(10000);
+      expect(dispatchWheel().defaultPrevented).toBe(false);
+      expect(postMessage).not.toHaveBeenCalled();
     });
 
     it("rejects malformed external payload (cast through unknown guard) without throw, badge unchanged", () => {

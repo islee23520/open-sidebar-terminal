@@ -1,9 +1,16 @@
 export type HerdrPlatform = "darwin" | "linux" | "win32";
 
+export interface HerdrSocketForward {
+  readonly apiSocketPath: string;
+  readonly clientSocketPath: string;
+}
+
 export interface HerdrInvocationInput {
   readonly executablePath?: string;
   readonly session?: string;
   readonly socketPath?: string;
+  readonly remoteTarget?: string;
+  readonly forwardSockets?: HerdrSocketForward;
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly platform: HerdrPlatform;
 }

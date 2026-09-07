@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { vi, type Mock } from "vitest";
 
 export class Disposable {
   public constructor(private readonly callback: () => void = () => undefined) {}
@@ -82,6 +82,7 @@ export function fireConfigurationChange(section: string): void {
 
 export const env = {
   shell: "/bin/mock-shell",
+  remoteName: undefined as string | undefined,
   clipboard: {
     writeText: vi.fn(async (_text: string) => undefined),
     readText: vi.fn(async () => ""),
@@ -131,9 +132,14 @@ export interface MockWebview {
 export interface MockWebviewPanel {
   webview: MockWebview;
   visible: boolean;
+  active: boolean;
   readonly onDidDispose: (listener: () => unknown) => Disposable;
-  readonly reveal: ReturnType<typeof vi.fn>;
-  readonly dispose: ReturnType<typeof vi.fn>;
+  readonly onDidChangeViewState: (
+    listener: (event: { webviewPanel: MockWebviewPanel }) => unknown,
+  ) => Disposable;
+  readonly reveal: Mock<(...args: unknown[]) => unknown>;
+  readonly dispose: Mock<() => void>;
+  readonly fireViewState: (active: boolean) => void;
 }
 
 function createMockWebview(): MockWebview {
@@ -151,14 +157,21 @@ function createMockWebview(): MockWebview {
 
 function createMockWebviewPanel(): MockWebviewPanel {
   const disposeEmitter = new EventEmitter<void>();
+  const viewStateEmitter = new EventEmitter<{ webviewPanel: MockWebviewPanel }>();
   const panel: MockWebviewPanel = {
     webview: createMockWebview(),
     visible: true,
+    active: true,
     onDidDispose: disposeEmitter.event,
+    onDidChangeViewState: viewStateEmitter.event,
     reveal: vi.fn(),
     dispose: vi.fn(() => {
       disposeEmitter.fire();
     }),
+    fireViewState: (active: boolean) => {
+      panel.active = active;
+      viewStateEmitter.fire({ webviewPanel: panel });
+    },
   };
   return panel;
 }
@@ -220,6 +233,7 @@ export function resetMocks(): void {
   window.activeTextEditor = undefined;
   workspace.getConfiguration.mockClear();
   env.shell = "/bin/mock-shell";
+  env.remoteName = undefined;
   env.clipboard.writeText.mockClear();
   env.clipboard.readText.mockClear();
 }

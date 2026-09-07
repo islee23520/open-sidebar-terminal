@@ -4,6 +4,7 @@ import type { HostMessage, WebviewMessage } from "../types";
 import * as vscode from "../test/mocks/vscode";
 import {
   HerdrAttachController,
+  herdrSessionId,
   type HerdrAttachPresenter,
 } from "../herdr/HerdrAttachController";
 import { TerminalManager } from "../terminals/TerminalManager";
@@ -66,6 +67,7 @@ class FakeHerdrTransport implements TerminalTransport {
   public readonly onOutput = this.outputEmitter.event;
   public readonly onExit = this.exitEmitter.event;
   public readonly write = vi.fn();
+  public readonly scroll = vi.fn();
   public readonly resize = vi.fn();
   public readonly close = vi.fn(async () => undefined);
 
@@ -291,6 +293,75 @@ describe("TerminalProvider", () => {
         ["active\r"],
         ["selection-or-file"],
       ]);
+    });
+
+    it("focuses the active Herdr editor tab and keeps global writes on it", async () => {
+      const manager = new TerminalManager();
+      const writeSpy = vi
+        .spyOn(manager, "write")
+        .mockImplementation(() => undefined);
+      const provider = new TerminalProvider(extensionUri, manager);
+      const makeController = (
+        sessionId: string,
+        presenter: HerdrAttachPresenter,
+      ) =>
+        new HerdrAttachController({
+          manager,
+          terminalId: sessionId,
+          transportFactory: () => {
+            throw new Error("no transport expected in this test");
+          },
+          presenter,
+        });
+      const open = (terminalId: string) =>
+        provider.openHerdrSession(
+          { terminalId, label: terminalId },
+          async () => undefined,
+          makeController,
+        );
+
+      await open("agent-a");
+      const panelA = lastResult(vscode.window.createWebviewPanel.mock.results)
+        ?.value as vscode.MockWebviewPanel;
+      await open("agent-b");
+      const panelB = lastResult(vscode.window.createWebviewPanel.mock.results)
+        ?.value as vscode.MockWebviewPanel;
+      const idA = herdrSessionId("agent-a");
+      const idB = herdrSessionId("agent-b");
+
+      expect(provider.activeSessionId()).toBe(idB);
+      panelA.fireViewState(true);
+      expect(provider.activeSessionId()).toBe(idA);
+      provider.write("to-focused");
+      expect(writeSpy).toHaveBeenLastCalledWith(idA, "to-focused");
+
+      const resizeSpy = vi
+        .spyOn(manager, "resize")
+        .mockImplementation(() => undefined);
+      const scrollSpy = vi
+        .spyOn(manager, "scroll")
+        .mockImplementation(() => undefined);
+      writeSpy.mockClear();
+      panelB.webview.send({ type: "input", data: "from-inactive\r" });
+      panelB.webview.send({ type: "resize", cols: 120, rows: 40 });
+      panelB.webview.send({
+        type: "scroll",
+        direction: "up",
+        lines: 2,
+        source: "wheel",
+        column: 0,
+        row: 0,
+        modifiers: 0,
+      });
+      expect(writeSpy.mock.calls).toEqual([]);
+      expect(resizeSpy).not.toHaveBeenCalled();
+      expect(scrollSpy).not.toHaveBeenCalled();
+
+      panelA.webview.send({ type: "input", data: "from-active\r" });
+      expect(writeSpy.mock.calls).toEqual([[idA, "from-active\r"]]);
+
+      panelA.dispose();
+      expect(provider.activeSessionId()).toBe(idB);
     });
 
     it("restores shell without shell-exit banner when bridge closes", async () => {

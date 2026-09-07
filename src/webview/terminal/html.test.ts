@@ -34,6 +34,7 @@ describe("renderTerminalHtml", () => {
     );
 
     expect(css).toContain("#terminal-container .xterm-viewport");
+    expect(css).toContain("overflow-y: hidden");
     expect(css).toContain("--vscode-terminal-background");
     expect(css).toContain("--vscode-panel-background");
     expect(css).not.toContain("background: #1e1e1e");

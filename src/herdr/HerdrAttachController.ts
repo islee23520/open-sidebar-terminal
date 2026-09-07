@@ -7,6 +7,7 @@ import type {
   TerminalTransport,
   TerminalTransportExitReason,
 } from "../terminals/TerminalTransport";
+import type { HerdrScrollGesture } from "../types";
 
 export type SourceStatePhase =
   | "shell"
@@ -389,6 +390,10 @@ class BufferedAttachTransport implements TerminalTransport {
 
   public write(data: string): void {
     this.transport.write(data);
+  }
+
+  public scroll(gesture: HerdrScrollGesture): void {
+    this.transport.scroll(gesture);
   }
 
   public resize(cols: number, rows: number): void {

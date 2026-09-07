@@ -1,4 +1,5 @@
 import type * as vscode from "vscode";
+import type { HerdrScrollGesture } from "../types";
 
 export type TerminalTransportExitReason =
   | "released"
@@ -21,6 +22,7 @@ export interface TerminalTransport {
     message?: string;
   }>;
   write(data: string): void;
+  scroll(gesture: HerdrScrollGesture): void;
   resize(cols: number, rows: number): void;
   close(reason: "release" | "shutdown"): Promise<void>;
 }

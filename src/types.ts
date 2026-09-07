@@ -8,9 +8,19 @@ export interface TerminalConfig {
   readonly scrollback: number;
 }
 
+export interface HerdrScrollGesture {
+  readonly direction: "up" | "down";
+  readonly lines: number;
+  readonly source: "wheel" | "page_key";
+  readonly column: number;
+  readonly row: number;
+  readonly modifiers: number;
+}
+
 export type WebviewMessage =
   | { readonly type: "ready"; readonly cols: number; readonly rows: number }
   | { readonly type: "input"; readonly data: string }
+  | ({ readonly type: "scroll" } & HerdrScrollGesture)
   | { readonly type: "resize"; readonly cols: number; readonly rows: number }
   | { readonly type: "copy"; readonly text: string }
   | { readonly type: "imagePasted"; readonly data: string };

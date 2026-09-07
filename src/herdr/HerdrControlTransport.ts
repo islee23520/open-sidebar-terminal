@@ -9,6 +9,7 @@ import type {
   TerminalTransport,
   TerminalTransportExitReason,
 } from "../terminals/TerminalTransport";
+import type { HerdrScrollGesture } from "../types";
 import type { HerdrInvocation, HerdrTimers } from "./types";
 
 const DEFAULT_FIRST_FRAME_TIMEOUT_MS = 5_000;
@@ -80,7 +81,6 @@ export class HerdrControlTransport implements TerminalTransport {
   private readonly releaseGraceMs: number;
   private readonly maxRecordBytes: number;
   private readonly child: HerdrControlChild;
-  private currentRows: number;
   private readonly lineDecoder = new StringDecoder("utf8");
   private frameDecoder = new StringDecoder("utf8");
   private line = "";
@@ -93,6 +93,8 @@ export class HerdrControlTransport implements TerminalTransport {
   private closing = false;
   private closePromise: Promise<void> | undefined;
   private resolveClose: (() => void) | undefined;
+  private cols: number;
+  private rows: number;
 
   public readonly onOutput = this.outputEmitter.event;
   public readonly onExit = this.exitEmitter.event;
@@ -106,9 +108,11 @@ export class HerdrControlTransport implements TerminalTransport {
       options.releaseGraceMs ?? DEFAULT_RELEASE_GRACE_MS;
     this.maxRecordBytes =
       options.maxRecordBytes ?? DEFAULT_MAX_RECORD_BYTES;
+    this.cols = options.cols;
+    this.rows = options.rows;
     const firstFrameTimeoutMs =
       options.firstFrameTimeoutMs ?? DEFAULT_FIRST_FRAME_TIMEOUT_MS;
-    this.currentRows = options.rows;
+
     const spawnFn = options.spawnFn ?? defaultSpawn;
     const args = [
       ...options.invocation.argsPrefix,
@@ -174,19 +178,28 @@ export class HerdrControlTransport implements TerminalTransport {
     if (data.length === 0) {
       throw new Error("Herdr terminal input must be non-empty.");
     }
-    const scroll = this.parseScroll(data);
-    if (scroll) {
-      this.send(scroll);
-      return;
-    }
     this.send({
       type: "terminal.input",
       bytes: Buffer.from(data, "utf8").toString("base64"),
     });
   }
 
+  public scroll(gesture: HerdrScrollGesture): void {
+    this.send({
+      type: "terminal.scroll",
+      direction: gesture.direction,
+      lines: gesture.lines,
+      source: gesture.source,
+      column: gesture.column,
+      row: gesture.row,
+      modifiers: gesture.modifiers,
+    });
+    this.send({ type: "terminal.resize", cols: this.cols, rows: this.rows });
+  }
+
   public resize(cols: number, rows: number): void {
-    this.currentRows = rows;
+    this.cols = cols;
+    this.rows = rows;
     this.send({ type: "terminal.resize", cols, rows });
   }
 
@@ -326,38 +339,6 @@ export class HerdrControlTransport implements TerminalTransport {
       mapped = "server-stopped";
     }
     this.emitExit(mapped);
-  }
-
-  private parseScroll(data: string): Record<string, string | number> | undefined {
-    const wheel = /^\x1b\[<(\d+);(\d+);(\d+)[Mm]$/.exec(data);
-    if (wheel) {
-      const button = Number(wheel[1]);
-      const baseButton = button & 0b11;
-      if ((button & 64) !== 0 && (baseButton === 0 || baseButton === 1 || baseButton === 2)) {
-        const direction = baseButton === 1 ? "down" : "up";
-        return {
-          type: "terminal.scroll",
-          direction,
-          lines: 3,
-          source: "wheel",
-          column: Number(wheel[2]),
-          row: Number(wheel[3]),
-          modifiers: (button >> 2) & 0b111,
-        };
-      }
-    }
-    if (data === "\x1b[5~" || data === "\x1b[6~") {
-      return {
-        type: "terminal.scroll",
-        direction: data === "\x1b[5~" ? "up" : "down",
-        lines: this.currentRows,
-        source: "page_key",
-        column: 0,
-        row: 0,
-        modifiers: 0,
-      };
-    }
-    return undefined;
   }
 
   private send(command: object): void {

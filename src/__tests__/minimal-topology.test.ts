@@ -146,6 +146,7 @@ describe("minimal sidebar terminal topology", () => {
       "ulw.fontSize",
       "ulw.herdr.enabled",
       "ulw.herdr.executablePath",
+      "ulw.herdr.remoteTarget",
       "ulw.herdr.session",
       "ulw.herdr.socketPath",
       "ulw.renderer",

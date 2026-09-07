@@ -1,4 +1,7 @@
 import { execFile } from "child_process";
+import { randomUUID } from "crypto";
+import { tmpdir } from "os";
+import { join } from "path";
 import * as vscode from "vscode";
 import { HerdrCliClient } from "../herdr/HerdrCliClient";
 import {
@@ -21,6 +24,10 @@ import {
 } from "../herdr/HerdrControlTransport";
 import { HerdrInvocationResolver } from "../herdr/HerdrInvocationResolver";
 import {
+  HerdrSshForward,
+  type HerdrSshForwardOptions,
+} from "../herdr/HerdrSshForward";
+import {
   agentAttachLabel,
   HerdrAgentsTreeProvider,
   HerdrSnapshotStore,
@@ -36,6 +43,7 @@ import type {
   HerdrInvocation,
   HerdrInvocationInput,
   HerdrPlatform,
+  HerdrSocketForward,
   HerdrSpace,
 } from "../herdr/types";
 import { TerminalProvider } from "../providers/TerminalProvider";
@@ -43,6 +51,7 @@ import type { TerminalTransport } from "../terminals/TerminalTransport";
 import { TerminalManager } from "../terminals/TerminalManager";
 
 const DEFAULT_DIMENSIONS = { cols: 80, rows: 24 } as const;
+const EXPLORER_POLL_MS = 2_000;
 const TAKEOVER_DISCLOSURE =
   "Taking control replaces other direct Herdr clients and is not auto-restored";
 
@@ -56,18 +65,27 @@ interface HerdrCli {
   listWorkspaces(): Promise<readonly HerdrSpace[]>;
 }
 
+export interface HerdrSocketForwardHandle {
+  start(): Promise<HerdrSocketForward>;
+  dispose(): void;
+}
+
 interface ExtensionLifecycleOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly platform?: HerdrPlatform;
   readonly resolveInvocation?: (input: HerdrInvocationInput) => HerdrInvocation;
   readonly runCommand?: HerdrCommandRunner;
   readonly createCliClient?: (invocation: HerdrInvocation) => HerdrCli;
+  readonly createSocketForward?: (
+    options: HerdrSshForwardOptions,
+  ) => HerdrSocketForwardHandle;
   readonly createControlTransport?: (
     options: HerdrControlTransportOptions,
   ) => TerminalTransport;
   readonly createAttachController?: (
     options: HerdrAttachControllerOptions,
   ) => HerdrAttachController;
+  readonly explorerPollMs?: number;
 }
 
 interface HerdrQuickPickItem extends vscode.QuickPickItem {
@@ -106,6 +124,8 @@ export class ExtensionLifecycle implements vscode.Disposable {
   private provider: TerminalProvider | undefined;
   private explorerStore: HerdrSnapshotStore | undefined;
   private readonly herdrControllers = new Map<string, HerdrAttachController>();
+  private activeForward: HerdrSocketForwardHandle | undefined;
+  private herdrGeneration = 0;
   private readonly sourceStateEmitter = new vscode.EventEmitter<SourceState>();
   private readonly disposables: vscode.Disposable[] = [];
 
@@ -113,8 +133,13 @@ export class ExtensionLifecycle implements vscode.Disposable {
 
   public activate(context: vscode.ExtensionContext): UlwExtensionApi {
     const terminalManager = new TerminalManager();
-    const invocation = this.resolveHerdrInvocation();
-    const client = this.createCliClient(invocation);
+    let invocation = this.resolveHerdrInvocation();
+    let client = this.createCliClient(invocation);
+    const sharedClient: HerdrCli = {
+      versionCheck: () => client.versionCheck(),
+      listAgents: () => client.listAgents(),
+      listWorkspaces: () => client.listWorkspaces(),
+    };
     const createControlTransport =
       this.options.createControlTransport ??
       ((transportOptions: HerdrControlTransportOptions) =>
@@ -123,7 +148,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
       this.options.createAttachController ??
       ((controllerOptions: HerdrAttachControllerOptions) =>
         new HerdrAttachController(controllerOptions));
-    const explorerStore = new HerdrSnapshotStore(client);
+    const explorerStore = new HerdrSnapshotStore(sharedClient);
     this.explorerStore = explorerStore;
     const provider = new TerminalProvider(
       context.extensionUri,
@@ -153,6 +178,61 @@ export class ExtensionLifecycle implements vscode.Disposable {
         controller.onSourceState((state) => this.sourceStateEmitter.fire(state)),
       );
       return controller;
+    };
+
+    const bootstrapHerdrRuntime = async (store: HerdrSnapshotStore): Promise<void> => {
+      this.herdrGeneration += 1;
+      const generation = this.herdrGeneration;
+      this.activeForward?.dispose();
+      this.activeForward = undefined;
+      const configuration = vscode.workspace.getConfiguration("ulw");
+      const remoteTarget = configuration
+        .get<string>("herdr.remoteTarget", "")
+        .trim();
+      let forwardSockets: HerdrSocketForward | undefined;
+      if (
+        this.herdrEnabled() &&
+        remoteTarget !== "" &&
+        vscode.env.remoteName !== undefined
+      ) {
+        const handle = this.createSocketForward({
+          target: remoteTarget,
+          localApiSocket: join(tmpdir(), `ulw-herdr-${randomUUID()}.sock`),
+          localClientSocket: join(
+            tmpdir(),
+            `ulw-herdr-${randomUUID()}-client.sock`,
+          ),
+        });
+        this.activeForward = handle;
+        try {
+          forwardSockets = await handle.start();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.error(`[ULW Herdr] ssh forward failed: ${message}`);
+          this.activeForward = undefined;
+          void vscode.window.showWarningMessage(
+            `Herdr ssh forward failed: ${message}`,
+          );
+        }
+        if (generation !== this.herdrGeneration) {
+          handle.dispose();
+          return;
+        }
+      }
+      if (generation !== this.herdrGeneration) {
+        return;
+      }
+      invocation = this.resolveHerdrInvocation(
+        forwardSockets ? { remoteTarget, forwardSockets } : undefined,
+      );
+      client = this.createCliClient(invocation);
+      if (this.herdrEnabled()) {
+        this.startExplorerWatch(store);
+        void vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar");
+        await this.refreshExplorerStore(store);
+      } else {
+        store.stopWatch();
+      }
     };
 
     const dataEmitter = new vscode.EventEmitter<string>();
@@ -265,16 +345,12 @@ export class ExtensionLifecycle implements vscode.Disposable {
         if (!event.affectsConfiguration("ulw.herdr")) {
           return;
         }
-        if (this.herdrEnabled()) {
-          void this.refreshExplorerStore(explorerStore);
-          void vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar");
-        }
+        void bootstrapHerdrRuntime(explorerStore);
       }),
     );
     context.subscriptions.push(this);
     if (this.herdrEnabled()) {
-      void vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar");
-      void this.refreshExplorerStore(explorerStore);
+      void bootstrapHerdrRuntime(explorerStore);
     } else {
       provider.openAtConfiguredLocation();
     }
@@ -338,6 +414,9 @@ export class ExtensionLifecycle implements vscode.Disposable {
   }
 
   public dispose(): void {
+    this.herdrGeneration += 1;
+    this.activeForward?.dispose();
+    this.activeForward = undefined;
     for (const disposable of this.disposables.splice(0).reverse()) {
       disposable.dispose();
     }
@@ -365,9 +444,18 @@ export class ExtensionLifecycle implements vscode.Disposable {
       .getConfiguration("ulw")
       .update("herdr.enabled", true, vscode.ConfigurationTarget.Global);
     if (this.explorerStore) {
+      this.startExplorerWatch(this.explorerStore);
       await this.refreshExplorerStore(this.explorerStore);
     }
     return true;
+  }
+
+  private startExplorerWatch(store: HerdrSnapshotStore): void {
+    const intervalMs = this.options.explorerPollMs ?? EXPLORER_POLL_MS;
+    if (intervalMs <= 0) {
+      return;
+    }
+    store.startWatch(intervalMs);
   }
 
   private async refreshExplorerStore(store: HerdrSnapshotStore): Promise<void> {
@@ -383,7 +471,9 @@ export class ExtensionLifecycle implements vscode.Disposable {
     }
   }
 
-  private resolveHerdrInvocation(): HerdrInvocation {
+  private resolveHerdrInvocation(
+    overrides?: { remoteTarget?: string; forwardSockets?: HerdrSocketForward },
+  ): HerdrInvocation {
     const configuration = vscode.workspace.getConfiguration("ulw");
     const input: HerdrInvocationInput = {
       executablePath: configuration.get<string>("herdr.executablePath", "herdr"),
@@ -391,10 +481,25 @@ export class ExtensionLifecycle implements vscode.Disposable {
       session: configuration.get<string>("herdr.session", ""),
       env: this.options.env ?? process.env,
       platform: this.options.platform ?? (process.platform as HerdrPlatform),
+      ...(overrides?.forwardSockets
+        ? {
+            forwardSockets: overrides.forwardSockets,
+            remoteTarget: overrides.remoteTarget ?? "",
+          }
+        : {}),
     };
     const resolveInvocation =
       this.options.resolveInvocation ?? HerdrInvocationResolver.resolve.bind(HerdrInvocationResolver);
     return resolveInvocation(input);
+  }
+
+  private createSocketForward(
+    options: HerdrSshForwardOptions,
+  ): HerdrSocketForwardHandle {
+    if (this.options.createSocketForward) {
+      return this.options.createSocketForward(options);
+    }
+    return new HerdrSshForward(options);
   }
 
   private createCliClient(invocation: HerdrInvocation): HerdrCli {

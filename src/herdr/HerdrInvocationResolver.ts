@@ -1,17 +1,46 @@
 import type { HerdrInvocation, HerdrInvocationInput } from "./types";
 
 const SOCKET_ENV = "HERDR_SOCKET_PATH";
+const CLIENT_SOCKET_ENV = "HERDR_CLIENT_SOCKET_PATH";
 
 export class HerdrInvocationResolver {
   public static resolve(input: HerdrInvocationInput): HerdrInvocation {
     const command = input.executablePath?.trim() || "herdr";
     const session = input.session?.trim() || "";
     const socketPath = input.socketPath?.trim() || "";
+    const forward = input.forwardSockets;
+    const forwardApi = forward?.apiSocketPath?.trim() || "";
+    const forwardClient = forward?.clientSocketPath?.trim() || "";
+    const remoteTarget = input.remoteTarget?.trim() || "";
+    const forwardActive =
+      forwardApi !== "" && forwardClient !== "" && remoteTarget !== "";
     const env = this.copyEnvironment(input.env);
     this.prependCommonBinDirs(env, input.platform);
     const argsPrefix: string[] = [];
     const warnings: string[] = [];
     let displayEndpoint = "herdr default";
+
+    if (forwardActive) {
+      env[SOCKET_ENV] = forwardApi;
+      env[CLIENT_SOCKET_ENV] = forwardClient;
+      if (session) {
+        warnings.push(
+          `Herdr forwarding to \"${remoteTarget}\" is active; session \"${session}\" is ignored.`,
+        );
+      }
+      if (socketPath) {
+        warnings.push(
+          `Herdr forwarding to \"${remoteTarget}\" is active; socketPath \"${socketPath}\" is ignored.`,
+        );
+      }
+      return Object.freeze({
+        command,
+        argsPrefix: Object.freeze([]),
+        env: Object.freeze(env),
+        displayEndpoint: `forward ${remoteTarget}`,
+        warnings: Object.freeze(warnings),
+      });
+    }
 
     if (session) {
       argsPrefix.push("--session", session);

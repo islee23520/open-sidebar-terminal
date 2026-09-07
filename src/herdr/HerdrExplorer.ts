@@ -22,6 +22,7 @@ export class HerdrSnapshotStore {
   private cachedAgents: readonly HerdrAgent[] = [];
   private loaded = false;
   private inflight: Promise<void> | undefined;
+  private watchHandle: ReturnType<typeof setInterval> | undefined;
   private readonly changeEmitter = new vscode.EventEmitter<void>();
 
   public readonly onDidChangeTreeData = this.changeEmitter.event;
@@ -61,7 +62,33 @@ export class HerdrSnapshotStore {
     this.changeEmitter.fire();
   }
 
+  public startWatch(intervalMs: number): void {
+    this.stopWatch();
+    this.watchHandle = setInterval(() => {
+      if (this.inflight) {
+        return;
+      }
+      this.inflight = this.refresh()
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          console.error(`[ULW Herdr] explorer poll failed: ${message}`);
+        })
+        .finally(() => {
+          this.inflight = undefined;
+        });
+    }, intervalMs);
+  }
+
+  public stopWatch(): void {
+    if (this.watchHandle === undefined) {
+      return;
+    }
+    clearInterval(this.watchHandle);
+    this.watchHandle = undefined;
+  }
+
   public dispose(): void {
+    this.stopWatch();
     this.changeEmitter.dispose();
   }
 }

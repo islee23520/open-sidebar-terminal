@@ -1,5 +1,6 @@
 import type * as pty from "node-pty";
 import * as vscode from "vscode";
+import type { HerdrScrollGesture } from "../types";
 import { LocalShellTransport } from "./LocalShellTransport";
 import type {
   TerminalTransport,
@@ -192,6 +193,11 @@ export class TerminalManager implements vscode.Disposable {
   public write(id: string, data: string): void {
     const slot = this.slots.get(id);
     (slot?.attached ?? slot?.localShell)?.write(data);
+  }
+
+  public scroll(id: string, gesture: HerdrScrollGesture): void {
+    const slot = this.slots.get(id);
+    slot?.attached?.scroll(gesture);
   }
 
   public resize(id: string, cols: number, rows: number): void {

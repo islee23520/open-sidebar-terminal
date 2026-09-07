@@ -127,6 +127,37 @@ describe("HerdrExplorer", () => {
     ).toBe(false);
   });
 
+  it("polls Herdr lists on an interval until watch is stopped", async () => {
+    vi.useFakeTimers();
+    const listWorkspaces = vi.fn(async () => [space()]);
+    const listAgents = vi
+      .fn()
+      .mockResolvedValueOnce([agent()])
+      .mockResolvedValue([agent({ paneId: "w46:p2", terminalId: "term-2", title: "second" })]);
+    const store = new HerdrSnapshotStore({ listWorkspaces, listAgents });
+    try {
+      store.startWatch(2_000);
+
+      expect(listAgents).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(listAgents).toHaveBeenCalledOnce();
+      expect(store.agents()).toEqual([agent()]);
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(listAgents).toHaveBeenCalledTimes(2);
+      expect(store.agents()).toEqual([
+        agent({ paneId: "w46:p2", terminalId: "term-2", title: "second" }),
+      ]);
+
+      store.stopWatch();
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(listAgents).toHaveBeenCalledTimes(2);
+    } finally {
+      store.stopWatch();
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps the previous snapshot when refresh fails", async () => {
     const listWorkspaces = vi
       .fn()

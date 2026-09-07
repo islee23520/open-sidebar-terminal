@@ -165,6 +165,7 @@ describe("TerminalManager", () => {
       public readonly onOutput = this.outputEmitter.event;
       public readonly onExit = this.exitEmitter.event;
       public readonly write = vi.fn<(data: string) => void>();
+      public readonly scroll = vi.fn();
       public readonly resize = vi.fn<(cols: number, rows: number) => void>();
       public readonly close = vi.fn(async (_reason: "release" | "shutdown") => undefined);
 
@@ -314,6 +315,7 @@ describe("TerminalManager", () => {
     const transport: TerminalTransport = {
       kind: "herdr-control",
       write: vi.fn(),
+      scroll: vi.fn(),
       resize: vi.fn(),
       close: vi.fn(async () => undefined),
       onOutput: () => ({ dispose() {} }),

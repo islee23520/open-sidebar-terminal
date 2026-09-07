@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import * as vscode from "../test/mocks/vscode";
 import {
   HerdrNotInstalledError,
@@ -13,6 +13,12 @@ import { TerminalManager } from "../terminals/TerminalManager";
 import { ExtensionLifecycle } from "./ExtensionLifecycle";
 
 vi.mock("node-pty", async () => vi.importActual("../test/mocks/node-pty"));
+
+// Herdr listeners fire explorer refreshes without awaiting them; drain the
+// resulting microtasks (and their logging) before the next test or teardown.
+afterEach(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+});
 
 function createContext() {
   return {
@@ -57,6 +63,7 @@ function createHerdrHarness(options: {
   attachError?: Error;
   herdrEnabled?: boolean;
   phase?: "shell" | "attaching" | "attached" | "detaching" | "error";
+  explorerPollMs?: number;
 } = {}) {
   vscode.workspace.workspaceFolders = [{ uri: vscode.Uri.file("/workspace/one") }];
   vscode.setConfiguration({
@@ -103,6 +110,7 @@ function createHerdrHarness(options: {
     listWorkspaces: vi.fn(async () => options.workspaces ?? []),
   };
   const lifecycle = new ExtensionLifecycle({
+    explorerPollMs: options.explorerPollMs ?? 0,
     createCliClient: () => client,
     createAttachController: () => {
       const next = {
@@ -601,6 +609,249 @@ describe("ExtensionLifecycle", () => {
     );
   });
 
+  it("manages the ssh forward only on remote windows with a configured target", async () => {
+    const makeHarness = () => {
+      const resolveInvocation = vi.fn(
+        (input: Parameters<typeof HerdrInvocationResolver.resolve>[0]) =>
+          HerdrInvocationResolver.resolve(input),
+      );
+      const createCliClient = vi.fn(() => ({
+        versionCheck: async () => ({ version: "0.8.2" }),
+        listAgents: async () => [],
+        listWorkspaces: async () => [],
+      }));
+      const forwards: Array<{
+        start: ReturnType<typeof vi.fn>;
+        dispose: ReturnType<typeof vi.fn>;
+      }> = [];
+      const createSocketForward = vi.fn((options: { target: string }) => {
+        const index = forwards.length;
+        const forward = {
+          options,
+          start: vi.fn(async () => ({
+            apiSocketPath: `/tmp/f-${index}.sock`,
+            clientSocketPath: `/tmp/f-${index}-client.sock`,
+          })),
+          dispose: vi.fn(),
+        };
+        forwards.push(forward);
+        return forward;
+      });
+      const lifecycle = new ExtensionLifecycle({
+        env: { PATH: undefined },
+        platform: "darwin",
+        resolveInvocation,
+        createCliClient,
+        createSocketForward,
+      });
+      return { resolveInvocation, createCliClient, createSocketForward, forwards, lifecycle };
+    };
+    const setConfig = (target: string) => {
+      vscode.setConfiguration({
+        "ulw.herdr.enabled": true,
+        "ulw.herdr.executablePath": "herdr",
+        "ulw.herdr.remoteTarget": target,
+      });
+    };
+
+    vscode.resetMocks();
+    setConfig("u@h");
+    vscode.env.remoteName = "ssh-remote+203.0.113.7";
+    const remote = makeHarness();
+    try {
+      remote.lifecycle.activate(createContext() as never);
+      await vi.waitFor(() => {
+        expect(remote.resolveInvocation).toHaveBeenCalled();
+      });
+      expect(remote.createSocketForward).toHaveBeenCalledWith(
+        expect.objectContaining({ target: "u@h" }),
+      );
+      await vi.waitFor(() => {
+        expect(
+          remote.resolveInvocation.mock.lastCall?.[0].forwardSockets,
+        ).toEqual({
+          apiSocketPath: "/tmp/f-0.sock",
+          clientSocketPath: "/tmp/f-0-client.sock",
+        });
+      });
+      expect(remote.resolveInvocation.mock.lastCall?.[0].remoteTarget).toBe("u@h");
+
+      setConfig("other@h");
+      vscode.fireConfigurationChange("ulw.herdr");
+      await vi.waitFor(() => {
+        expect(remote.forwards.length).toBe(2);
+        expect(remote.forwards[0]?.dispose).toHaveBeenCalled();
+      });
+      await vi.waitFor(() => {
+        expect(
+          remote.resolveInvocation.mock.lastCall?.[0].forwardSockets,
+        ).toEqual({
+          apiSocketPath: "/tmp/f-1.sock",
+          clientSocketPath: "/tmp/f-1-client.sock",
+        });
+      });
+
+      setConfig("");
+      vscode.fireConfigurationChange("ulw.herdr");
+      await vi.waitFor(() => {
+        expect(remote.forwards[1]?.dispose).toHaveBeenCalled();
+        expect(
+          remote.resolveInvocation.mock.lastCall?.[0].forwardSockets,
+        ).toBeUndefined();
+      });
+    } finally {
+      remote.lifecycle.dispose();
+    }
+    expect(remote.forwards[1]?.dispose).toHaveBeenCalledTimes(1);
+
+    vscode.resetMocks();
+    setConfig("u@h");
+    const local = makeHarness();
+    try {
+      local.lifecycle.activate(createContext() as never);
+      await vi.waitFor(() => {
+        expect(local.resolveInvocation).toHaveBeenCalled();
+      });
+      expect(local.createSocketForward).not.toHaveBeenCalled();
+      for (const [input] of local.resolveInvocation.mock.calls) {
+        expect(input.forwardSockets).toBeUndefined();
+        expect(input.remoteTarget).toBeUndefined();
+      }
+    } finally {
+      local.lifecycle.dispose();
+    }
+  });
+
+  it("re-resolves the Herdr invocation and client when Herdr settings change at runtime", async () => {
+    vscode.resetMocks();
+    vscode.setConfiguration({
+      "ulw.herdr.enabled": true,
+      "ulw.herdr.executablePath": "herdr",
+      "ulw.herdr.remoteTarget": "",
+    });
+    const clients: Array<{
+      versionCheck: ReturnType<typeof vi.fn>;
+      listAgents: ReturnType<typeof vi.fn>;
+      listWorkspaces: ReturnType<typeof vi.fn>;
+    }> = [];
+    const resolveInvocation = vi.fn(
+      (input: Parameters<typeof HerdrInvocationResolver.resolve>[0]) =>
+        HerdrInvocationResolver.resolve(input),
+    );
+    const createCliClient = vi.fn(() => {
+      const client = {
+        versionCheck: vi.fn(async () => ({ version: "0.8.2" })),
+        listAgents: vi.fn(async () => [] as HerdrAgent[]),
+        listWorkspaces: vi.fn(async () => []),
+      };
+      clients.push(client);
+      return client;
+    });
+    const lifecycle = new ExtensionLifecycle({
+      env: { PATH: undefined },
+      platform: "darwin",
+      explorerPollMs: 0,
+      resolveInvocation,
+      createCliClient,
+    });
+    try {
+      lifecycle.activate(createContext() as never);
+      await vi.waitFor(() => {
+        expect(clients[1]?.listAgents).toHaveBeenCalled();
+      });
+
+      vscode.setConfiguration({
+        "ulw.herdr.enabled": true,
+        "ulw.herdr.executablePath": "herdr",
+        "ulw.herdr.remoteTarget": "ops@box",
+      });
+      vscode.fireConfigurationChange("ulw.herdr");
+      await vi.waitFor(() => {
+        expect(createCliClient).toHaveBeenCalledTimes(3);
+      });
+      await vi.waitFor(() => {
+        expect(clients[2]?.listAgents).toHaveBeenCalled();
+      });
+
+      vscode.setConfiguration({
+        "ulw.herdr.enabled": true,
+        "ulw.herdr.executablePath": "herdr",
+        "ulw.herdr.remoteTarget": "",
+      });
+      vscode.fireConfigurationChange("ulw.herdr");
+      await vi.waitFor(() => {
+        expect(createCliClient).toHaveBeenCalledTimes(4);
+      });
+      expect(resolveInvocation.mock.lastCall?.[0].remoteTarget).toBeUndefined();
+      // Drain the fire-and-forget refresh the listener started so its logging
+      // cannot race worker teardown after dispose.
+      const agentResults = clients[3]?.listAgents.mock.results ?? [];
+      const workspaceResults = clients[3]?.listWorkspaces.mock.results ?? [];
+      await agentResults[agentResults.length - 1]?.value;
+      await workspaceResults[workspaceResults.length - 1]?.value;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      lifecycle.dispose();
+    }
+  });
+
+  it("does not continue the herdr bootstrap after lifecycle disposal", async () => {
+    vscode.resetMocks();
+    vscode.setConfiguration({
+      "ulw.herdr.enabled": true,
+      "ulw.herdr.executablePath": "herdr",
+      "ulw.herdr.remoteTarget": "u@h",
+    });
+    vscode.env.remoteName = "ssh-remote+203.0.113.7";
+    const resolveInvocation = vi.fn(
+      (input: Parameters<typeof HerdrInvocationResolver.resolve>[0]) =>
+        HerdrInvocationResolver.resolve(input),
+    );
+    const createCliClient = vi.fn(() => ({
+      versionCheck: async () => ({ version: "0.8.2" }),
+      listAgents: async () => [],
+      listWorkspaces: async () => [],
+    }));
+    let releaseStart: (sockets: {
+      apiSocketPath: string;
+      clientSocketPath: string;
+    }) => void = () => undefined;
+    const start = vi.fn(
+      () =>
+        new Promise<{ apiSocketPath: string; clientSocketPath: string }>(
+          (resolve) => {
+            releaseStart = resolve;
+          },
+        ),
+    );
+    const dispose = vi.fn();
+    const lifecycle = new ExtensionLifecycle({
+      env: { PATH: undefined },
+      platform: "darwin",
+      explorerPollMs: 0,
+      resolveInvocation,
+      createCliClient,
+      createSocketForward: vi.fn(() => ({ start, dispose })),
+    });
+
+    lifecycle.activate(createContext() as never);
+    await vi.waitFor(() => {
+      expect(start).toHaveBeenCalled();
+    });
+    const clientsBeforeDispose = createCliClient.mock.calls.length;
+    const resolvesBeforeDispose = resolveInvocation.mock.calls.length;
+    lifecycle.dispose();
+    releaseStart({
+      apiSocketPath: "/tmp/f-late.sock",
+      clientSocketPath: "/tmp/f-late-client.sock",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(createCliClient).toHaveBeenCalledTimes(clientsBeforeDispose);
+    expect(resolveInvocation).toHaveBeenCalledTimes(resolvesBeforeDispose);
+    expect(dispose).toHaveBeenCalled();
+  });
+
   it("passes explicit settings through the resolver with a stripped environment and shares invocation with the bridge", async () => {
     vscode.resetMocks();
     vscode.setConfiguration({
@@ -750,6 +1001,30 @@ describe("ExtensionLifecycle", () => {
       expect(client.listWorkspaces).toHaveBeenCalledOnce();
       expect(client.listAgents).toHaveBeenCalledOnce();
     });
+  });
+
+  it("polls Spaces and Agents while Herdr stays enabled", async () => {
+    vscode.resetMocks();
+    vi.useFakeTimers();
+    const { client, lifecycle } = createHerdrHarness({
+      agents: [agent()],
+      explorerPollMs: 2_000,
+    });
+    try {
+      lifecycle.activate(createContext() as never);
+      await vi.waitFor(() => {
+        expect(client.listAgents).toHaveBeenCalledOnce();
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(client.listAgents).toHaveBeenCalledTimes(2);
+      expect(client.listWorkspaces).toHaveBeenCalledTimes(2);
+      lifecycle.dispose();
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(client.listAgents).toHaveBeenCalledTimes(2);
+    } finally {
+      lifecycle.dispose();
+      vi.useRealTimers();
+    }
   });
 
   it("loads Spaces and Agents after the user enables Herdr at runtime", async () => {

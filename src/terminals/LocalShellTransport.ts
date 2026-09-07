@@ -1,6 +1,7 @@
 import * as os from "os";
 import * as pty from "node-pty";
 import * as vscode from "vscode";
+import type { HerdrScrollGesture } from "../types";
 import type { TerminalTransport } from "./TerminalTransport";
 
 export class LocalShellTransport implements TerminalTransport {
@@ -67,6 +68,10 @@ export class LocalShellTransport implements TerminalTransport {
 
   public write(data: string): void {
     this.process.write(data);
+  }
+
+  public scroll(_gesture: HerdrScrollGesture): void {
+    // Local shells scroll through xterm; Herdr scroll is attach-only.
   }
 
   public resize(cols: number, rows: number): void {
