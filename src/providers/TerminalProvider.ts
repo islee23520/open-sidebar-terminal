@@ -3,6 +3,13 @@ import * as os from "os";
 import * as path from "path";
 import { randomBytes, randomUUID } from "crypto";
 import * as vscode from "vscode";
+import type {
+  HerdrAttachController,
+  HerdrAttachPresenter,
+  HerdrAttachTarget,
+  SourceState,
+} from "../herdr/HerdrAttachController";
+import { herdrSessionId } from "../herdr/HerdrAttachController";
 import type { CursorStyle, HostMessage, TerminalConfig, WebviewMessage } from "../types";
 import { TerminalManager } from "../terminals/TerminalManager";
 import { renderTerminalHtml } from "../webview/terminal/html";
@@ -11,42 +18,74 @@ const TERMINAL_ID = "sidebar-shell";
 const EDITOR_VIEW_TYPE = "ulw.terminalEditor";
 const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
-const MAX_SCROLLBACK_CHARS = 500_000;
 
 export type TerminalLocation = "sidebar" | "editor";
 
-export class TerminalProvider implements vscode.WebviewViewProvider, vscode.Disposable {
+type HerdrEditorSession = {
+  readonly panel: vscode.WebviewPanel;
+  readonly controller: HerdrAttachController;
+  readonly target: HerdrAttachTarget;
+};
+
+export class TerminalProvider
+  implements vscode.WebviewViewProvider, vscode.Disposable, HerdrAttachPresenter
+{
   public static readonly viewType = "ulw";
 
   private view: vscode.WebviewView | undefined;
   private editorPanel: vscode.WebviewPanel | undefined;
   private activeLocation: TerminalLocation = "sidebar";
   private disposing = false;
-  private scrollback = "";
   private readonly disposables: vscode.Disposable[] = [];
+  private readonly herdrSessions = new Map<string, HerdrEditorSession>();
+  private activeTerminalId = TERMINAL_ID;
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly terminalManager: TerminalManager,
+    private readonly attachController?: HerdrAttachController,
   ) {
     this.disposables.push(
-      terminalManager.onData(({ id, data }) => {
-        if (id !== TERMINAL_ID) {
+      terminalManager.onData(({ id, data, replay }) => {
+        if (id === TERMINAL_ID) {
+          if (replay === "replace") {
+            this.postMessage({ type: "reset" });
+          }
+          this.postMessage({ type: "output", data });
           return;
         }
-        this.appendScrollback(data);
-        this.postMessage({ type: "output", data });
+        const session = this.herdrSessions.get(id);
+        if (!session) {
+          return;
+        }
+        if (replay === "replace") {
+          void session.panel.webview.postMessage({ type: "reset" });
+        }
+        void session.panel.webview.postMessage({ type: "output", data });
       }),
       terminalManager.onExit(({ id, code, signal }) => {
-        if (id !== TERMINAL_ID) {
+        if (id === TERMINAL_ID) {
+          if (
+            this.terminalManager.activeSource(TERMINAL_ID) === "herdr-control" ||
+            this.attachController?.sourceState.phase === "attached"
+          ) {
+            return;
+          }
+          this.postMessage({ type: "exit", code, signal });
           return;
         }
-        this.scrollback = "";
-        this.postMessage({ type: "exit", code, signal });
+        const session = this.herdrSessions.get(id);
+        if (!session) {
+          return;
+        }
+        void session.panel.webview.postMessage({ type: "exit", code, signal });
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration("ulw")) {
           this.postMessage({ type: "config", ...this.readConfig() });
+        }
+        if (event.affectsConfiguration("ulw.sidebar.enabled")) {
+          this.applySidebarVisibility();
         }
       }),
     );
@@ -69,13 +108,16 @@ export class TerminalProvider implements vscode.WebviewViewProvider, vscode.Disp
   }
 
   public openAtConfiguredLocation(): void {
-    if (this.readDefaultLocation() === "editor") {
+    if (this.readDefaultLocation() === "editor" || !this.sidebarEnabled()) {
       this.openEditorPanel();
     }
   }
 
   public toggleEditorLocation(): void {
     if (this.editorPanel) {
+      if (!this.sidebarEnabled()) {
+        return;
+      }
       this.closeEditorPanel();
       return;
     }
@@ -83,7 +125,7 @@ export class TerminalProvider implements vscode.WebviewViewProvider, vscode.Disp
   }
 
   public isEditorLocation(): boolean {
-    return this.activeLocation === "editor" && this.editorPanel !== undefined;
+    return this.activeLocation === "editor";
   }
 
   public getDefaultLocation(): TerminalLocation {
@@ -91,7 +133,114 @@ export class TerminalProvider implements vscode.WebviewViewProvider, vscode.Disp
   }
 
   public write(data: string): void {
-    this.terminalManager.write(TERMINAL_ID, data);
+    this.terminalManager.write(this.activeTerminalId, data);
+  }
+
+  public async openHerdrSession(
+    target: HerdrAttachTarget,
+    attach: (target: HerdrAttachTarget) => Promise<void>,
+    createController: (sessionId: string, presenter: HerdrAttachPresenter) => HerdrAttachController,
+  ): Promise<void> {
+    const sessionId = herdrSessionId(target.terminalId);
+    const existing = this.herdrSessions.get(sessionId);
+    if (existing) {
+      this.focusHerdrSession(sessionId);
+      existing.panel.reveal(vscode.ViewColumn.Active);
+      if (existing.controller.sourceState.phase === "shell") {
+        await attach(target);
+        return;
+      }
+      this.postSourceStateToPanel(existing.panel, existing.controller.sourceState);
+      return;
+    }
+
+    const title = target.label?.trim() || target.terminalId;
+    const panel = vscode.window.createWebviewPanel(
+      EDITOR_VIEW_TYPE,
+      title,
+      vscode.ViewColumn.Active,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [this.extensionUri],
+      },
+    );
+    this.configureWebview(panel.webview);
+    const presenter: HerdrAttachPresenter = {
+      postReset: () => {
+        void panel.webview.postMessage({ type: "reset" });
+      },
+      postOutput: (data) => {
+        void panel.webview.postMessage({ type: "output", data });
+      },
+      postSourceState: (state) => {
+        this.postSourceStateToPanel(panel, state);
+      },
+    };
+    const controller = createController(sessionId, presenter);
+    const session: HerdrEditorSession = { panel, controller, target };
+    this.herdrSessions.set(sessionId, session);
+    this.focusHerdrSession(sessionId);
+    const messageSubscription = panel.webview.onDidReceiveMessage(
+      (message: WebviewMessage) => {
+        this.handleHerdrSessionMessage(sessionId, message);
+      },
+    );
+    const viewStateSubscription = panel.onDidChangeViewState(
+      ({ webviewPanel }) => {
+        if (webviewPanel.active) {
+          this.focusHerdrSession(sessionId);
+        }
+      },
+    );
+    const disposeSubscription = panel.onDidDispose(() => {
+      messageSubscription.dispose();
+      viewStateSubscription.dispose();
+      disposeSubscription.dispose();
+      const current = this.herdrSessions.get(sessionId);
+      if (current?.panel !== panel) {
+        return;
+      }
+      this.herdrSessions.delete(sessionId);
+      current.controller.dispose();
+      if (this.activeTerminalId === sessionId) {
+        const remaining = [...this.herdrSessions.keys()];
+        this.activeTerminalId =
+          remaining.length > 0 ? remaining[remaining.length - 1] : TERMINAL_ID;
+      }
+    });
+    panel.webview.html = this.renderHtml(panel.webview);
+    await attach(target);
+  }
+
+  public herdrSessionCount(): number {
+    return this.herdrSessions.size;
+  }
+
+  public activeSessionId(): string {
+    return this.activeTerminalId;
+  }
+
+  private focusHerdrSession(sessionId: string): void {
+    const session = this.herdrSessions.get(sessionId);
+    if (!session) {
+      return;
+    }
+    this.herdrSessions.delete(sessionId);
+    this.herdrSessions.set(sessionId, session);
+    this.activeTerminalId = sessionId;
+  }
+
+  public postReset(): void {
+    this.postToSurface(this.activeLocation, { type: "reset" });
+  }
+
+  public postOutput(data: string): void {
+    this.postMessage({ type: "output", data });
+  }
+
+  public postSourceState(state: SourceState): void {
+    this.postSourceStateToSurface(this.activeLocation, state);
   }
 
   public isRunning(): boolean {
@@ -104,6 +253,11 @@ export class TerminalProvider implements vscode.WebviewViewProvider, vscode.Disp
 
   public dispose(): void {
     this.disposing = true;
+    for (const [sessionId, session] of this.herdrSessions) {
+      session.controller.dispose();
+      session.panel.dispose();
+      this.herdrSessions.delete(sessionId);
+    }
     this.terminalManager.kill(TERMINAL_ID);
     const panel = this.editorPanel;
     this.editorPanel = undefined;
@@ -113,7 +267,6 @@ export class TerminalProvider implements vscode.WebviewViewProvider, vscode.Disp
     }
     this.view = undefined;
     this.activeLocation = "sidebar";
-    this.scrollback = "";
     this.disposing = false;
   }
 
@@ -148,6 +301,11 @@ export class TerminalProvider implements vscode.WebviewViewProvider, vscode.Disp
       disposeSubscription.dispose();
       if (this.editorPanel === panel && !this.disposing) {
         this.editorPanel = undefined;
+        if (!this.sidebarEnabled()) {
+          this.activeLocation = "editor";
+          void vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar");
+          return;
+        }
         this.activeLocation = "sidebar";
         this.postMessage({ type: "focus" });
         void vscode.commands.executeCommand("workbench.view.extension.ulwContainer");
@@ -163,6 +321,12 @@ export class TerminalProvider implements vscode.WebviewViewProvider, vscode.Disp
       return;
     }
     this.editorPanel = undefined;
+    if (!this.sidebarEnabled()) {
+      this.activeLocation = "editor";
+      panel.dispose();
+      void vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar");
+      return;
+    }
     this.activeLocation = "sidebar";
     panel.dispose();
     if (!this.disposing) {
@@ -176,14 +340,29 @@ export class TerminalProvider implements vscode.WebviewViewProvider, vscode.Disp
       case "ready": {
         const isActive = source === this.activeLocation;
         if (isActive) {
-          if (!this.terminalManager.hasTerminal(TERMINAL_ID)) {
-            this.terminalManager.createTerminal(TERMINAL_ID, message.cols, message.rows);
-          } else {
+          const activeSource = this.terminalManager.activeSource(TERMINAL_ID);
+          const controllerPhase = this.attachController?.sourceState.phase ?? "shell";
+          if (activeSource === undefined && controllerPhase === "shell") {
+            this.terminalManager.ensureLocalShell(
+              TERMINAL_ID,
+              message.cols,
+              message.rows,
+            );
+          } else if (activeSource !== undefined) {
             this.terminalManager.resize(TERMINAL_ID, message.cols, message.rows);
           }
         }
         this.postToSurface(source, { type: "config", ...this.readConfig() });
-        this.replayScrollback(source);
+        const sourceState: SourceState = this.attachController?.sourceState ?? {
+          source: "shell",
+          phase: "shell",
+        };
+        this.postSourceStateToSurface(source, sourceState);
+        this.postToSurface(source, { type: "reset" });
+        const replay = this.terminalManager.replay(TERMINAL_ID);
+        if (replay.length > 0) {
+          this.postToSurface(source, { type: "output", data: replay });
+        }
         if (isActive) {
           this.postMessage({ type: "focus" });
         }
@@ -194,6 +373,12 @@ export class TerminalProvider implements vscode.WebviewViewProvider, vscode.Disp
           return;
         }
         this.terminalManager.write(TERMINAL_ID, message.data);
+        break;
+      case "scroll":
+        if (source !== this.activeLocation) {
+          return;
+        }
+        this.terminalManager.scroll(TERMINAL_ID, message);
         break;
       case "resize":
         if (source !== this.activeLocation) {
@@ -238,18 +423,17 @@ export class TerminalProvider implements vscode.WebviewViewProvider, vscode.Disp
     void this.view?.webview.postMessage(message);
   }
 
-  private replayScrollback(source: TerminalLocation): void {
-    if (!this.scrollback) {
-      return;
-    }
-    this.postToSurface(source, { type: "output", data: this.scrollback });
-  }
-
-  private appendScrollback(data: string): void {
-    this.scrollback += data;
-    if (this.scrollback.length > MAX_SCROLLBACK_CHARS) {
-      this.scrollback = this.scrollback.slice(this.scrollback.length - MAX_SCROLLBACK_CHARS);
-    }
+  private postSourceStateToSurface(
+    source: TerminalLocation,
+    state: SourceState,
+  ): void {
+    this.postToSurface(source, {
+      type: "sourceState",
+      source: state.source,
+      phase: state.phase,
+      ...(state.label === undefined ? {} : { label: state.label }),
+      ...(state.message === undefined ? {} : { message: state.message }),
+    });
   }
 
   private configureWebview(webview: vscode.Webview): void {
@@ -306,7 +490,91 @@ export class TerminalProvider implements vscode.WebviewViewProvider, vscode.Disp
     return { mimeType: match[1], buffer: Buffer.from(match[2], "base64") };
   }
 
+  private handleHerdrSessionMessage(
+    sessionId: string,
+    message: WebviewMessage,
+  ): void {
+    const session = this.herdrSessions.get(sessionId);
+    if (!session) {
+      return;
+    }
+    switch (message.type) {
+      case "ready": {
+        const source = this.terminalManager.activeSource(sessionId);
+        if (source !== undefined && sessionId === this.activeTerminalId) {
+          this.terminalManager.resize(sessionId, message.cols, message.rows);
+        }
+        void session.panel.webview.postMessage({ type: "config", ...this.readConfig() });
+        this.postSourceStateToPanel(session.panel, session.controller.sourceState);
+        void session.panel.webview.postMessage({ type: "reset" });
+        const replay = this.terminalManager.replay(sessionId);
+        if (replay.length > 0) {
+          void session.panel.webview.postMessage({ type: "output", data: replay });
+        }
+        void session.panel.webview.postMessage({ type: "focus" });
+        break;
+      }
+      case "input":
+        if (sessionId === this.activeTerminalId) {
+          this.terminalManager.write(sessionId, message.data);
+        }
+        break;
+      case "scroll":
+        if (sessionId === this.activeTerminalId) {
+          this.terminalManager.scroll(sessionId, message);
+        }
+        break;
+      case "resize":
+        if (sessionId === this.activeTerminalId) {
+          this.terminalManager.resize(sessionId, message.cols, message.rows);
+        }
+        break;
+      case "copy":
+        if (message.text) {
+          void vscode.env.clipboard.writeText(message.text);
+        }
+        break;
+      case "imagePasted":
+        void this.saveImageAndPostPath(message.data);
+        break;
+      default: {
+        const _exhaustive: never = message;
+        void _exhaustive;
+      }
+    }
+  }
+
+  private postSourceStateToPanel(
+    panel: vscode.WebviewPanel,
+    state: SourceState,
+  ): void {
+    void panel.webview.postMessage({
+      type: "sourceState",
+      source: state.source,
+      phase: state.phase,
+      ...(state.label === undefined ? {} : { label: state.label }),
+      ...(state.message === undefined ? {} : { message: state.message }),
+    });
+  }
+
+  private applySidebarVisibility(): void {
+    if (this.sidebarEnabled()) {
+      return;
+    }
+    if (this.editorPanel) {
+      this.activeLocation = "editor";
+    }
+    void vscode.commands.executeCommand("workbench.action.closeAuxiliaryBar");
+  }
+
+  private sidebarEnabled(): boolean {
+    return vscode.workspace.getConfiguration("ulw").get<boolean>("sidebar.enabled", true);
+  }
+
   private readDefaultLocation(): TerminalLocation {
+    if (!this.sidebarEnabled()) {
+      return "editor";
+    }
     const configuration = vscode.workspace.getConfiguration("ulw");
     const configured = configuration.get<string>("defaultLocation", "editor");
     return configured === "sidebar" ? "sidebar" : "editor";

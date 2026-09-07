@@ -6,6 +6,7 @@ const fit = vi.fn();
 const terminalWrite = vi.fn();
 const terminalFocus = vi.fn();
 const terminalDispose = vi.fn();
+const terminalReset = vi.fn();
 const terminalGetSelection = vi.fn(() => "selected output");
 const terminalRefresh = vi.fn();
 const terminalOptions: Record<string, unknown> = {};
@@ -40,8 +41,14 @@ vi.mock("@xterm/xterm", () => ({
     public readonly write = terminalWrite;
     public readonly focus = terminalFocus;
     public readonly dispose = terminalDispose;
+    public readonly reset = terminalReset;
     public readonly getSelection = terminalGetSelection;
     public readonly refresh = terminalRefresh;
+    public attachCustomWheelEventHandler = vi.fn();
+    public modes = {
+      mouseTrackingMode: "none" as const,
+      applicationCursorKeysMode: false,
+    };
     public textarea: HTMLTextAreaElement | undefined;
     private container?: HTMLElement;
     public constructor(options: Record<string, unknown>) {
@@ -135,11 +142,14 @@ class TestIntersectionObserver {
   public disconnect(): void {}
 }
 
-const { createTerminalView, DEFAULT_FONT_FAMILY } = await import("./index");
+const { createTerminalView, DEFAULT_FONT_FAMILY, isSourceStateMessage } = await import("./index");
 
 describe("createTerminalView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    for (const key of Object.keys(terminalOptions)) {
+      delete terminalOptions[key];
+    }
     dataListener = undefined;
     resizeListener = undefined;
     terminalConstructorOptions = undefined;
@@ -305,4 +315,165 @@ describe("createTerminalView", () => {
     expect(terminalRefresh).toHaveBeenCalledTimes(1);
   });
 
+  describe("reset and sourceState messages", () => {
+    beforeEach(() => {
+      terminalReset.mockClear();
+      terminalWrite.mockClear();
+    });
+
+    it("postMessage {type:'reset'} -> terminal.reset() called AND sentinel written before reset disappears", () => {
+      const container = document.createElement("div");
+      createTerminalView(container);
+
+      // Simulate writing a sentinel
+      window.dispatchEvent(
+        new MessageEvent("message", { data: { type: "output", data: "ULW_SENTINEL_OLD" } }),
+      );
+      expect(terminalWrite).toHaveBeenCalledWith("ULW_SENTINEL_OLD");
+
+      // Dispatch reset
+      window.dispatchEvent(
+        new MessageEvent("message", { data: { type: "reset" } }),
+      );
+
+      expect(terminalReset).toHaveBeenCalled();
+
+      // Since it's a mock, we assert the mock order (write happened before reset)
+      const writeOrder = terminalWrite.mock.invocationCallOrder[0];
+      const resetOrder = terminalReset.mock.invocationCallOrder[0];
+      expect(resetOrder).toBeGreaterThan(writeOrder);
+    });
+
+    it("renders badge for typed phases and clears on shell phase", () => {
+      const container = document.createElement("div");
+      createTerminalView(container);
+
+      // attached+label -> badge visible with label text
+      window.dispatchEvent(
+        new MessageEvent("message", { data: { type: "sourceState", source: "herdr", phase: "attached", label: "probe" } }),
+      );
+
+      let badge = container.querySelector(".ulw-status-badge");
+      expect(badge).not.toBeNull();
+      expect(badge?.getAttribute("role")).toBe("status");
+      expect(badge?.getAttribute("aria-live")).toBe("polite");
+      expect(badge?.textContent).toBe("Attached: probe");
+      expect(badge?.classList.contains("error")).toBe(false);
+
+      // attaching -> badge visible
+      window.dispatchEvent(
+        new MessageEvent("message", { data: { type: "sourceState", source: "herdr", phase: "attaching" } }),
+      );
+
+      badge = container.querySelector(".ulw-status-badge");
+      expect(badge?.textContent).toBe("Attaching");
+
+      // detaching -> badge visible
+      window.dispatchEvent(
+        new MessageEvent("message", { data: { type: "sourceState", source: "herdr", phase: "detaching" } }),
+      );
+
+      badge = container.querySelector(".ulw-status-badge");
+      expect(badge?.textContent).toBe("Detaching");
+
+      // error+message -> message inline, error class
+      window.dispatchEvent(
+        new MessageEvent("message", { data: { type: "sourceState", source: "herdr", phase: "error", message: "boom" } }),
+      );
+
+      badge = container.querySelector(".ulw-status-badge");
+      expect(badge?.textContent).toBe("Error: boom");
+      expect(badge?.classList.contains("error")).toBe(true);
+
+      // shell -> badge cleared
+      window.dispatchEvent(
+        new MessageEvent("message", { data: { type: "sourceState", source: "shell", phase: "shell" } }),
+      );
+
+      expect(container.querySelector(".ulw-status-badge")).toBeNull();
+    });
+
+    it("forwards wheel as Herdr scroll gestures while attached", () => {
+      const container = document.createElement("div");
+      createTerminalView(container);
+      const dispatchWheel = (): WheelEvent => {
+        const event = new WheelEvent("wheel", {
+          deltaY: -120,
+          bubbles: true,
+          cancelable: true,
+          clientX: 0,
+          clientY: 0,
+        });
+        Object.defineProperty(event, "target", { value: container });
+        window.dispatchEvent(event);
+        return event;
+      };
+
+      expect(dispatchWheel().defaultPrevented).toBe(false);
+      expect(postMessage).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: "scroll" }),
+      );
+
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "sourceState",
+            source: "herdr",
+            phase: "attached",
+            label: "probe",
+          },
+        }),
+      );
+      postMessage.mockClear();
+
+      expect(terminalOptions.scrollback).toBe(0);
+      expect(dispatchWheel().defaultPrevented).toBe(true);
+      expect(postMessage).toHaveBeenCalledWith({
+        type: "scroll",
+        direction: "up",
+        lines: 3,
+        source: "wheel",
+        column: 1,
+        row: 1,
+        modifiers: 0,
+      });
+
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "sourceState", source: "shell", phase: "shell" },
+        }),
+      );
+      postMessage.mockClear();
+      expect(terminalOptions.scrollback).toBe(10000);
+      expect(dispatchWheel().defaultPrevented).toBe(false);
+      expect(postMessage).not.toHaveBeenCalled();
+    });
+
+    it("rejects malformed external payload (cast through unknown guard) without throw, badge unchanged", () => {
+      const container = document.createElement("div");
+      createTerminalView(container);
+
+      // set an initial valid state
+      window.dispatchEvent(
+        new MessageEvent("message", { data: { type: "sourceState", source: "herdr", phase: "attaching" } }),
+      );
+
+      const badge = container.querySelector(".ulw-status-badge");
+      expect(badge?.textContent).toBe("Attaching");
+
+      // exercise the guard directly
+      expect(isSourceStateMessage({ type: "sourceState", source: "herdr", phase: "invalid_phase_name" } as unknown)).toBe(false);
+      expect(isSourceStateMessage({ type: "sourceState", source: "herdr", phase: "attaching" } as unknown)).toBe(true);
+
+      // send a malformed payload (invalid phase)
+      window.dispatchEvent(
+        new MessageEvent("message", { data: { type: "sourceState", source: "herdr", phase: "invalid_phase_name" } as unknown }),
+      );
+
+      // The badge should not have changed or crashed
+      const badgeAfter = container.querySelector(".ulw-status-badge");
+      expect(badgeAfter).toBe(badge);
+      expect(badgeAfter?.textContent).toBe("Attaching");
+    });
+  });
 });

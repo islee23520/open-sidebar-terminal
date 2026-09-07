@@ -2,7 +2,7 @@
   "name": "opencode-sidebar-tui",
   "displayName": "ULW Sidebar Terminal",
   "description": "A fast native shell terminal in the VS Code secondary sidebar.",
-  "version": "1.12.8",
+  "version": "1.12.16",
   "publisher": "islee23520",
   "icon": "icon.png",
   "engines": {
@@ -25,11 +25,19 @@
   "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ulwHerdr",
+          "title": "Herdr",
+          "icon": "resources/ulwcode-sidebar.svg"
+        }
+      ],
       "secondarySidebar": [
         {
           "id": "ulwContainer",
           "title": "ULW",
-          "icon": "resources/ulwcode-sidebar.svg"
+          "icon": "resources/ulwcode-sidebar.svg",
+          "when": "config.ulw.sidebar.enabled && !config.ulw.herdr.enabled"
         }
       ]
     },
@@ -39,7 +47,20 @@
           "id": "ulw",
           "name": "Terminal",
           "type": "webview",
-          "icon": "resources/ulwcode-sidebar.svg"
+          "icon": "resources/ulwcode-sidebar.svg",
+          "when": "config.ulw.sidebar.enabled && !config.ulw.herdr.enabled"
+        }
+      ],
+      "ulwHerdr": [
+        {
+          "id": "ulw.herdr.spaces",
+          "name": "Spaces",
+          "when": "config.ulw.herdr.enabled"
+        },
+        {
+          "id": "ulw.herdr.agents",
+          "name": "Agents",
+          "when": "config.ulw.herdr.enabled"
         }
       ]
     },
@@ -60,6 +81,32 @@
         "command": "ulw.sendFileToTerminal",
         "title": "ULW: Send File to Terminal",
         "category": "ULW"
+      },
+      {
+        "command": "ulw.attachHerdrSession",
+        "title": "ULW: Attach Herdr Session",
+        "category": "ULW"
+      },
+      {
+        "command": "ulw.detachHerdrSession",
+        "title": "ULW: Detach Herdr Session",
+        "category": "ULW"
+      },
+      {
+        "command": "ulw.herdr.openAgent",
+        "title": "ULW: Attach Herdr Agent",
+        "category": "ULW"
+      },
+      {
+        "command": "ulw.herdr.openSpace",
+        "title": "ULW: Reveal Herdr Space",
+        "category": "ULW"
+      },
+      {
+        "command": "ulw.herdr.refreshExplorer",
+        "title": "ULW: Refresh Herdr Explorer",
+        "category": "ULW",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -80,6 +127,11 @@
           "command": "ulw.toggleEditorLocation",
           "when": "view == ulw",
           "group": "navigation"
+        },
+        {
+          "command": "ulw.herdr.refreshExplorer",
+          "when": "view == ulw.herdr.spaces || view == ulw.herdr.agents",
+          "group": "navigation"
         }
       ],
       "editor/title": [
@@ -93,6 +145,11 @@
     "configuration": {
       "title": "ULW Terminal",
       "properties": {
+        "ulw.sidebar.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the ULW label in the secondary sidebar. Turn this off to hide ULW from the sidebar completely; the terminal still opens as an editor tab."
+        },
         "ulw.defaultLocation": {
           "type": "string",
           "enum": [
@@ -167,6 +224,35 @@
           "default": [],
           "scope": "machine-overridable",
           "description": "Arguments passed to the shell executable."
+        },
+        "ulw.herdr.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Herdr Spaces/Agents and attach/detach. Off by default; ULW is only a terminal until this is turned on."
+        },
+        "ulw.herdr.executablePath": {
+          "type": "string",
+          "default": "herdr",
+          "scope": "machine-overridable",
+          "description": "Herdr executable path. GUI-launched VS Code may not inherit your shell PATH, so configure an absolute path when herdr cannot be found."
+        },
+        "ulw.herdr.socketPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "Optional Herdr socket path. Ignored when a named Herdr session is configured."
+        },
+        "ulw.herdr.session": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "Optional named Herdr session. When set, it takes precedence over the socket path."
+        },
+        "ulw.herdr.remoteTarget": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "description": "SSH target (e.g. user@host) whose Herdr server ULW should reach while VS Code is connected to a remote window. ULW forwards the remote API and client sockets over SSH and routes Spaces/Agents listing and attach through them. Targets the default Herdr session; a configured ulw.herdr.session is ignored while forwarding. Ignored in local windows."
         }
       }
     }
@@ -182,9 +268,11 @@
     "test": "vitest run",
     "pretest:e2e": "node -e \"require('fs').rmSync('out', { recursive: true, force: true })\" && npm run compile && npm run compile:e2e",
     "test:e2e": "vscode-test",
+    "test:e2e:herdr": "npm run pretest:e2e && vscode-test --label herdr",
     "test:all": "npm run test && npm run test:e2e",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "package:vsix": "npm run package && npx @vscode/vsce package --allow-star-activation && node script/qa/check-vsix-node-pty.mjs",
     "build-and-install": "npx @vscode/vsce package -o build/extension.vsix && code --install-extension build/extension.vsix --force"
   },
   "devDependencies": {
@@ -216,9 +304,19 @@
   },
   "activationEvents": [
     "onView:ulw",
+    "onView:ulw.herdr.spaces",
+    "onView:ulw.herdr.agents",
     "onCommand:ulw.toggleEditorLocation",
     "onCommand:ulw.sendSelectionToTerminal",
     "onCommand:ulw.sendFileToTerminal",
+    "onCommand:ulw.attachHerdrSession",
+    "onCommand:ulw.detachHerdrSession",
+    "onCommand:ulw.herdr.openAgent",
+    "onCommand:ulw.herdr.openSpace",
+    "onCommand:ulw.herdr.refreshExplorer",
     "onStartupFinished"
-  ]
+  ],
+  "allowScripts": {
+    "node-pty@1.2.0-beta.11": true
+  }
 }

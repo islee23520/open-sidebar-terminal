@@ -1,8 +1,8 @@
 # ULW Sidebar Terminal
 
-ULW is a small VS Code extension that runs one native shell terminal in the secondary sidebar.
+ULW is a small VS Code extension that runs one native shell terminal in the secondary sidebar or an editor-group tab.
 
-It intentionally has no terminal multiplexer, session manager, AI integration, HTTP service, dashboard, or multi-pane layout. Opening ULW creates one `node-pty` process and connects it to one xterm.js terminal in either the secondary sidebar or an editor-group tab.
+With Herdr integration off, opening ULW creates one `node-pty` process connected to one xterm.js surface. With `ulw.herdr.enabled`, the ULW sidebar terminal is hidden; Spaces/Agents live in the Activity Bar, and each agent opens in its own editor-group tab.
 
 ## Use
 
@@ -14,6 +14,16 @@ The shell starts in the first workspace folder. When no workspace is open, it st
 
 Run **ULW: Toggle Terminal Location** (`ulw.toggleEditorLocation`) to move the same shell between the secondary sidebar and an editor-group tab. Toggle again, or close the editor tab, to return to the sidebar. Switching surfaces reuses the same shell and replays recent scrollback into the newly focused xterm.
 
+## Attach to a running Herdr agent
+
+Herdr integration is off until you set `ulw.herdr.enabled` (Settings: **ULW › Herdr: Enabled**). After that, use **ULW: Attach Herdr Session** (`ulw.attachHerdrSession`) to open a QuickPick of live Herdr agents, then choose the session to take over. The Activity Bar **Herdr** view lists the same live **Spaces** (`ulw.herdr.spaces`) and **Agents** (`ulw.herdr.agents`). Clicking an agent (`ulw.herdr.openAgent`) attaches the existing terminal when that agent's folder is this VS Code window, otherwise it opens the folder in a new window. Clicking a space (`ulw.herdr.openSpace`) uses the same folder check and never starts an agent. Refresh with `ulw.herdr.refreshExplorer`.
+
+- The picker and trees are populated from the Herdr CLI `agent list` / `workspace list` output, and ULW warns when takeover will replace other direct Herdr clients.
+- Taking control is not auto-restored to those other clients; ULW owns the session only while attached.
+- Any attach failure or external closure restores the local shell automatically.
+
+Use **ULW: Detach Herdr Session** (`ulw.detachHerdrSession`) to release ULW's controller and restore the local shell. A previously displaced direct Herdr client is not automatically restored.
+
 The terminal automatically inherits the active VS Code terminal palette, including ANSI colors, cursor colors, selections, and live theme changes. Drag-selecting terminal text copies the finished selection to the system clipboard.
 
 ## Commands
@@ -23,12 +33,18 @@ The terminal automatically inherits the active VS Code terminal palette, includi
 | `ulw.toggleEditorLocation` | Toggle the terminal between secondary sidebar and editor group |
 | `ulw.sendSelectionToTerminal` | Send the active editor selection to the terminal |
 | `ulw.sendFileToTerminal` | Send an explorer file path to the terminal |
+| `ulw.attachHerdrSession` | Attach to a running Herdr agent |
+| `ulw.detachHerdrSession` | Detach from a running Herdr agent |
+| `ulw.herdr.openAgent` | Attach the selected Activity Bar agent |
+| `ulw.herdr.openSpace` | Open that Space's folder in this window or a new window |
+| `ulw.herdr.refreshExplorer` | Refresh Spaces and Agents lists |
 
 ## Settings
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
 | `ulw.defaultLocation` | `editor` | Open in an editor-group tab or the secondary sidebar |
+| `ulw.sidebar.enabled` | `true` | Show the ULW label in the secondary sidebar. Off hides ULW from the sidebar completely |
 | `ulw.fontSize` | `14` | Terminal font size |
 | `ulw.fontFamily` | Nerd Font and monospace fallbacks | Terminal font family |
 | `ulw.cursorBlink` | `true` | Blink the cursor |
@@ -36,6 +52,10 @@ The terminal automatically inherits the active VS Code terminal palette, includi
 | `ulw.scrollback` | `10000` | Scrollback line count |
 | `ulw.shellPath` | empty | Shell executable; empty uses the VS Code or system default |
 | `ulw.shellArgs` | `[]` | Arguments passed to the shell |
+| `ulw.herdr.enabled` | `false` | Turn on Herdr Spaces/Agents and attach. Off until you enable it |
+| `ulw.herdr.executablePath` | `herdr` | Herdr executable path; GUI-launched VS Code may need an explicit absolute path if PATH does not include herdr |
+| `ulw.herdr.socketPath` | empty | Optional Herdr socket path; ignored when a named session is configured |
+| `ulw.herdr.session` | empty | Optional named Herdr session; takes precedence over the socket path |
 
 ## Development
 

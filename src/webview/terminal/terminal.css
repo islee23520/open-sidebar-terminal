@@ -1,0 +1,22 @@
+.ulw-status-badge {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  z-index: 100;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--vscode-terminal-foreground, var(--vscode-editor-foreground, #cccccc));
+  background: var(--vscode-terminal-inactiveSelectionBackground, var(--vscode-badge-background, #333333));
+  border: 1px solid var(--vscode-terminal-selectionBackground, #444444);
+  pointer-events: none;
+  opacity: 0.95;
+  box-shadow: var(--vscode-widget-shadow, 0 2px 4px rgba(0, 0, 0, 0.2));
+}
+
+.ulw-status-badge.error {
+  color: var(--vscode-terminal-ansiBrightWhite, #ffffff);
+  background: var(--vscode-terminal-ansiRed, #cd3131);
+  border-color: var(--vscode-terminal-ansiBrightRed, #f14c4c);
+}

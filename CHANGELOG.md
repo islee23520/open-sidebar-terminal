@@ -5,6 +5,60 @@ All notable changes to the "ULW" extension will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.16] - 2026-09-07
+
+### Added
+
+- Herdr over SSH: the new `ulw.herdr.remoteTarget` setting reaches the Herdr server behind an SSH target while VS Code is connected to a remote window. ULW forwards the remote Herdr API and client sockets over SSH and routes Spaces/Agents listing and attach through them. Blank targets and local windows keep the previous invocation, Herdr setting changes apply to new invocations without reloading the window, and a configured `ulw.herdr.session` is ignored while forwarding.
+
+### Fixed
+
+- Switching between Herdr agent editor tabs now moves global input, resize, and detach to the focused agent's tab, and closing the focused tab falls back to the most recently focused remaining agent.
+
+## [1.12.15] - 2026-08-24
+
+### Fixed
+
+- Herdr attach scroll: wheel/PageUp/PageDown now send Herdr `terminal.scroll` (host history) instead of CSI arrows as `terminal.input`. Arrows were reaching the agent prompt/input widget and scrolling that field, not the transcript. Follow each scroll with same-size `terminal.resize` so Herdr emits a scrolled `full:true` checkpoint frame.
+
+## [1.12.14] - 2026-08-24
+
+### Fixed
+
+- Herdr attach scroll: capture wheel on `window` and post repeated CSI arrows as `terminal.input`. xterm was eating wheel as local scroll (viewport checkpoint has no history) or dropping it when render dimensions were missing (`consumeWheelEvent` returned 0). Also block xterm's local wheel handler via `customWheelEventHandler` while attached.
+
+## [1.12.13] - 2026-08-24
+
+### Fixed
+
+- Stop capturing wheel/click in the webview. xterm already converts wheel to CSI arrows when scrollback is 0; intercepting the event blocked that path. Hide the xterm viewport overflow so an empty local buffer cannot swallow the gesture.
+
+## [1.12.12] - 2026-08-24
+
+### Fixed
+
+- Wheel an attached agent TUI with CSI arrows when the app has no mouse tracking (typical pi/omo frames omit DECSET 1000/1006). Send SGR mouse only when xterm reports a mouse protocol, so clicks still work in mouse-aware apps.
+
+## [1.12.11] - 2026-08-24
+
+### Fixed
+
+- Send Herdr-attached wheel and clicks as SGR mouse (`ESC[<64;col;rowM`, `ESC[<0;col;rowM/m`) instead of CSI arrows, so the agent TUI gets mouse input rather than keyboard scroll.
+
+## [1.12.10] - 2026-08-24
+
+### Fixed
+
+- Mouse-wheel a Herdr-attached agent TUI by sending CSI arrows as PTY input. Host `terminal.scroll` only moves Herdr history and does not paint alt-screen apps; a follow-up same-size resize snapped the live viewport back.
+- Capture wheel on the webview `window` and disable xterm scrollback while attached so the local empty buffer cannot swallow the gesture.
+
+## [1.12.9] - 2026-08-24
+
+### Fixed
+
+- Scroll a Herdr-attached terminal by intercepting wheel/Page keys and forcing a checkpoint after `terminal.scroll`, which otherwise moves host history without painting a new frame.
+- Keep the Spaces and Agents trees current by polling Herdr lists while Herdr mode is enabled.
+
 ## [1.12.8] - 2026-08-06
 
 ### Fixed

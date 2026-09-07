@@ -1,16 +1,27 @@
-import * as os from "os";
-import * as pty from "node-pty";
+import type * as pty from "node-pty";
 import * as vscode from "vscode";
+import type { HerdrScrollGesture } from "../types";
+import { LocalShellTransport } from "./LocalShellTransport";
+import type {
+  TerminalTransport,
+  TerminalTransportExitReason,
+} from "./TerminalTransport";
+
+const MAX_SHELL_REPLAY_CHARS = 500_000;
+const MAX_ATTACHED_REPLAY_BYTES = 8 * 1024 * 1024;
 
 export interface TerminalDataEvent {
   readonly id: string;
   readonly data: string;
+  readonly replay: "append" | "replace";
 }
 
 export interface TerminalExitEvent {
   readonly id: string;
   readonly code: number;
   readonly signal?: number;
+  readonly reason: TerminalTransportExitReason;
+  readonly message?: string;
 }
 
 export interface TerminalStartEvent {
@@ -18,9 +29,17 @@ export interface TerminalStartEvent {
   readonly pid: number;
 }
 
+interface TerminalSlot {
+  localShell?: LocalShellTransport;
+  localGeneration: number;
+  localReplay: string;
+  attached?: TerminalTransport;
+  attachedGeneration: number;
+  attachedReplay: string;
+}
+
 export class TerminalManager implements vscode.Disposable {
-  private readonly terminals = new Map<string, pty.IPty>();
-  private readonly generations = new Map<string, number>();
+  private readonly slots = new Map<string, TerminalSlot>();
   private readonly dataEmitter = new vscode.EventEmitter<TerminalDataEvent>();
   private readonly exitEmitter = new vscode.EventEmitter<TerminalExitEvent>();
   private readonly startEmitter = new vscode.EventEmitter<TerminalStartEvent>();
@@ -33,78 +52,186 @@ export class TerminalManager implements vscode.Disposable {
     id: string,
     cols: number,
     rows: number,
-    cwd = this.resolveWorkingDirectory(),
+    cwd?: string,
   ): pty.IPty {
-    const existing = this.terminals.get(id);
-    if (existing) {
-      return existing;
+    return this.ensureLocalShell(id, cols, rows, cwd).unwrap();
+  }
+
+  public ensureLocalShell(
+    id: string,
+    cols: number,
+    rows: number,
+    cwd?: string,
+  ): LocalShellTransport {
+    const slot = this.getOrCreateSlot(id);
+    if (slot.localShell) {
+      return slot.localShell;
     }
 
-    const configuration = vscode.workspace.getConfiguration("ulw");
-    const configuredShell = configuration.get<string>("shellPath", "").trim();
-    const shell = configuredShell || vscode.env.shell || this.defaultShell();
-    const args = configuration.get<readonly string[]>("shellArgs", []);
-    const generation = (this.generations.get(id) ?? 0) + 1;
-    this.generations.set(id, generation);
-
-    const process = pty.spawn(shell, [...args], {
-      name: "xterm-256color",
-      cols: this.normalizeDimension(cols, 80),
-      rows: this.normalizeDimension(rows, 24),
-      cwd,
-      env: this.buildEnvironment(),
-    });
-
-    this.terminals.set(id, process);
-    this.startEmitter.fire({ id, pid: process.pid });
-    process.onData((data) => {
-      if (this.generations.get(id) === generation) {
-        this.dataEmitter.fire({ id, data });
-      }
-    });
-    process.onExit(({ exitCode, signal }) => {
-      if (this.generations.get(id) !== generation) {
+    const shell = new LocalShellTransport(cols, rows, cwd);
+    const generation = slot.localGeneration + 1;
+    slot.localGeneration = generation;
+    slot.localShell = shell;
+    this.startEmitter.fire({ id, pid: shell.pid });
+    shell.onOutput(({ data, replay }) => {
+      if (slot.localGeneration !== generation || slot.localShell !== shell) {
         return;
       }
-      this.terminals.delete(id);
-      this.exitEmitter.fire({ id, code: exitCode, signal });
+      slot.localReplay = this.appendShellReplay(slot.localReplay, data);
+      if (!slot.attached) {
+        this.dataEmitter.fire(this.createDataEvent(id, data, replay));
+      }
     });
+    shell.onExit(({ reason, message }) => {
+      if (slot.localGeneration !== generation || slot.localShell !== shell) {
+        return;
+      }
+      slot.localShell = undefined;
+      slot.localReplay = "";
+      this.exitEmitter.fire(
+        this.createExitEvent(
+          id,
+          shell.exitCode ?? 0,
+          shell.exitSignal,
+          reason,
+          message,
+        ),
+      );
+      this.deleteEmptySlot(id, slot);
+    });
+    return shell;
+  }
 
-    return process;
+  public attach(
+    id: string,
+    transportFactory: () => TerminalTransport,
+    initialReplay = "",
+  ): TerminalTransport {
+    const slot = this.getOrCreateSlot(id);
+    const previous = slot.attached;
+    if (previous) {
+      slot.attachedGeneration += 1;
+      slot.attached = undefined;
+      slot.attachedReplay = "";
+      void previous.close("release");
+    }
+
+    const transport = transportFactory();
+    const generation = slot.attachedGeneration + 1;
+    slot.attachedGeneration = generation;
+    slot.attached = transport;
+    slot.attachedReplay = initialReplay;
+    transport.onOutput(({ data, replay }) => {
+      if (!this.isCurrentAttached(slot, transport, generation)) {
+        return;
+      }
+      const nextReplay = replay === "replace" ? data : slot.attachedReplay + data;
+      if (Buffer.byteLength(nextReplay, "utf8") > MAX_ATTACHED_REPLAY_BYTES) {
+        this.failAttachedReplay(id, slot, transport, generation);
+        return;
+      }
+      slot.attachedReplay = nextReplay;
+      this.dataEmitter.fire(this.createDataEvent(id, data, replay));
+    });
+    transport.onExit(({ reason, message }) => {
+      if (!this.isCurrentAttached(slot, transport, generation)) {
+        return;
+      }
+      slot.attached = undefined;
+      slot.attachedReplay = "";
+      this.exitEmitter.fire(
+        this.createExitEvent(id, 0, undefined, reason, message),
+      );
+      this.deleteEmptySlot(id, slot);
+    });
+    return transport;
+  }
+
+  public detach(id: string): void {
+    const slot = this.slots.get(id);
+    const attached = slot?.attached;
+    if (!slot || !attached) {
+      return;
+    }
+    slot.attachedGeneration += 1;
+    slot.attached = undefined;
+    slot.attachedReplay = "";
+    void attached.close("release");
+    this.deleteEmptySlot(id, slot);
+  }
+
+  public activeSource(
+    id: string,
+  ): "local-shell" | "herdr-control" | undefined {
+    const slot = this.slots.get(id);
+    return slot?.attached?.kind ?? slot?.localShell?.kind;
+  }
+
+  public replay(id: string): string {
+    const slot = this.slots.get(id);
+    if (!slot) {
+      return "";
+    }
+    return slot.attached ? slot.attachedReplay : slot.localReplay;
   }
 
   public hasTerminal(id: string): boolean {
-    return this.terminals.has(id);
+    const slot = this.slots.get(id);
+    return slot?.attached !== undefined || slot?.localShell !== undefined;
   }
 
   public terminalCount(): number {
-    return this.terminals.size;
+    let count = 0;
+    for (const slot of this.slots.values()) {
+      if (slot.localShell || slot.attached) {
+        count += 1;
+      }
+    }
+    return count;
   }
 
   public write(id: string, data: string): void {
-    this.terminals.get(id)?.write(data);
+    const slot = this.slots.get(id);
+    (slot?.attached ?? slot?.localShell)?.write(data);
+  }
+
+  public scroll(id: string, gesture: HerdrScrollGesture): void {
+    const slot = this.slots.get(id);
+    slot?.attached?.scroll(gesture);
   }
 
   public resize(id: string, cols: number, rows: number): void {
-    const terminal = this.terminals.get(id);
-    if (!terminal || cols < 1 || rows < 1) {
+    if (cols < 1 || rows < 1) {
       return;
     }
-    terminal.resize(cols, rows);
+    const slot = this.slots.get(id);
+    (slot?.attached ?? slot?.localShell)?.resize(cols, rows);
   }
 
   public kill(id: string): void {
-    const terminal = this.terminals.get(id);
-    if (!terminal) {
+    const slot = this.slots.get(id);
+    if (!slot) {
       return;
     }
-    this.generations.set(id, (this.generations.get(id) ?? 0) + 1);
-    this.terminals.delete(id);
-    terminal.kill();
+    this.slots.delete(id);
+    const attached = slot.attached;
+    const shell = slot.localShell;
+    slot.attachedGeneration += 1;
+    slot.localGeneration += 1;
+    slot.attached = undefined;
+    slot.localShell = undefined;
+    slot.attachedReplay = "";
+    slot.localReplay = "";
+    if (attached) {
+      void attached.close("shutdown");
+    }
+    if (shell) {
+      void shell.close("shutdown");
+    }
   }
 
   public dispose(): void {
-    for (const id of [...this.terminals.keys()]) {
+    for (const id of [...this.slots.keys()]) {
       this.kill(id);
     }
     this.dataEmitter.dispose();
@@ -112,40 +239,92 @@ export class TerminalManager implements vscode.Disposable {
     this.startEmitter.dispose();
   }
 
-  private resolveWorkingDirectory(): string {
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? os.homedir();
+  private getOrCreateSlot(id: string): TerminalSlot {
+    let slot = this.slots.get(id);
+    if (!slot) {
+      slot = {
+        localGeneration: 0,
+        localReplay: "",
+        attachedGeneration: 0,
+        attachedReplay: "",
+      };
+      this.slots.set(id, slot);
+    }
+    return slot;
   }
 
-  private defaultShell(): string {
-    if (process.platform === "win32") {
-      return process.env.COMSPEC ?? "cmd.exe";
-    }
-    return process.env.SHELL ?? "/bin/sh";
+  private appendShellReplay(current: string, data: string): string {
+    const replay = current + data;
+    return replay.length > MAX_SHELL_REPLAY_CHARS
+      ? replay.slice(replay.length - MAX_SHELL_REPLAY_CHARS)
+      : replay;
   }
 
-  private buildEnvironment(): Record<string, string> {
-    const environment: Record<string, string> = {};
-    for (const [key, value] of Object.entries(process.env)) {
-      if (value !== undefined) {
-        environment[key] = value;
-      }
-    }
-    environment.TERM = "xterm-256color";
-    environment.COLORTERM = "truecolor";
-    const utf8Locale =
-      environment.LANG && environment.LANG.includes("UTF-8")
-        ? environment.LANG
-        : "en_US.UTF-8";
-    if (!environment.LANG || !environment.LANG.includes("UTF-8")) {
-      environment.LANG = utf8Locale;
-    }
-    if (!environment.LC_CTYPE) {
-      environment.LC_CTYPE = environment.LANG;
-    }
-    return environment;
+  private isCurrentAttached(
+    slot: TerminalSlot,
+    transport: TerminalTransport,
+    generation: number,
+  ): boolean {
+    return (
+      slot.attachedGeneration === generation && slot.attached === transport
+    );
   }
 
-  private normalizeDimension(value: number, fallback: number): number {
-    return Number.isInteger(value) && value > 0 ? value : fallback;
+  private failAttachedReplay(
+    id: string,
+    slot: TerminalSlot,
+    transport: TerminalTransport,
+    generation: number,
+  ): void {
+    if (!this.isCurrentAttached(slot, transport, generation)) {
+      return;
+    }
+    slot.attachedGeneration += 1;
+    slot.attached = undefined;
+    slot.attachedReplay = "";
+    void transport.close("release");
+    this.exitEmitter.fire(
+      this.createExitEvent(
+        id,
+        0,
+        undefined,
+        "protocol-error",
+        "Attached terminal replay exceeded the 8 MiB limit.",
+      ),
+    );
+    this.deleteEmptySlot(id, slot);
+  }
+
+  private createDataEvent(
+    id: string,
+    data: string,
+    replay: "append" | "replace",
+  ): TerminalDataEvent {
+    const event = { id, data } as TerminalDataEvent;
+    Object.defineProperty(event, "replay", { value: replay, enumerable: false });
+    return event;
+  }
+
+  private createExitEvent(
+    id: string,
+    code: number,
+    signal: number | undefined,
+    reason: TerminalTransportExitReason,
+    message: string | undefined,
+  ): TerminalExitEvent {
+    const event = (signal === undefined
+      ? { id, code }
+      : { id, code, signal }) as TerminalExitEvent;
+    Object.defineProperties(event, {
+      reason: { value: reason, enumerable: false },
+      message: { value: message, enumerable: false },
+    });
+    return event;
+  }
+
+  private deleteEmptySlot(id: string, slot: TerminalSlot): void {
+    if (!slot.localShell && !slot.attached) {
+      this.slots.delete(id);
+    }
   }
 }

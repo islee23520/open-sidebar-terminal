@@ -9,7 +9,7 @@ function resolveLocalVsCodeExecutable() {
 
   if (process.platform === "darwin") {
     const candidate =
-      "/Applications/Visual Studio Code.app/Contents/MacOS/Electron";
+      "/Applications/Visual Studio Code.app/Contents/MacOS/Code";
     return fs.existsSync(candidate) ? candidate : undefined;
   }
 
@@ -39,10 +39,14 @@ function resolveLocalVsCodeExecutable() {
 
 const localVsCodeExecutable = resolveLocalVsCodeExecutable();
 
-module.exports = defineConfig({
-  files: "out/test/e2e/**/*.e2e.js",
+const packagedExtensionPath = process.env.ULW_E2E_EXTENSION_PATH;
+
+const shared = {
   version: "stable",
   workspaceFolder: "src/test/e2e/fixtures/workspace",
+  ...(packagedExtensionPath
+    ? { extensionDevelopmentPath: packagedExtensionPath }
+    : {}),
   ...(localVsCodeExecutable
     ? {
         useInstallation: {
@@ -54,4 +58,23 @@ module.exports = defineConfig({
     ui: "tdd",
     timeout: 20000,
   },
-});
+};
+
+const herdrRequested = process.argv.some(
+  (argument, index, argv) =>
+    argument === "--label=herdr" ||
+    (argument === "--label" && argv[index + 1] === "herdr"),
+);
+
+module.exports = defineConfig(
+  herdrRequested
+    ? {
+        ...shared,
+        label: "herdr",
+        files: "out/test/e2e/suite/herdr-attach.e2e.js",
+      }
+    : {
+        ...shared,
+        files: "out/test/e2e/suite/activation.e2e.js",
+      },
+);

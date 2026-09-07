@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { vi, type Mock } from "vitest";
 
 export class Disposable {
   public constructor(private readonly callback: () => void = () => undefined) {}
@@ -49,11 +49,16 @@ const configurationEmitter = new EventEmitter<{
 }>();
 
 export function setConfiguration(values: Readonly<Record<string, unknown>>): void {
-  configuration.clear();
   for (const [key, value] of Object.entries(values)) {
     configuration.set(key, value);
   }
 }
+
+export const ConfigurationTarget = {
+  Global: 1,
+  Workspace: 2,
+  WorkspaceFolder: 3,
+} as const;
 
 export const workspace = {
   workspaceFolders: [{ uri: Uri.file(process.cwd()) }],
@@ -61,18 +66,23 @@ export const workspace = {
     get<T>(key: string, fallback?: T): T {
       return (configuration.get(`${section}.${key}`) as T | undefined) ?? (fallback as T);
     },
+    update: vi.fn(async (key: string, value: unknown) => {
+      configuration.set(`${section}.${key}`, value);
+    }),
   })),
   onDidChangeConfiguration: configurationEmitter.event,
 };
 
 export function fireConfigurationChange(section: string): void {
   configurationEmitter.fire({
-    affectsConfiguration: (candidate) => candidate === section,
+    affectsConfiguration: (candidate) =>
+      section === candidate || section.startsWith(`${candidate}.`),
   });
 }
 
 export const env = {
   shell: "/bin/mock-shell",
+  remoteName: undefined as string | undefined,
   clipboard: {
     writeText: vi.fn(async (_text: string) => undefined),
     readText: vi.fn(async () => ""),
@@ -84,6 +94,22 @@ export const ViewColumn = {
   Beside: -2,
   One: 1,
 } as const;
+
+export const TreeItemCollapsibleState = {
+  None: 0,
+  Collapsed: 1,
+  Expanded: 2,
+} as const;
+
+export class TreeItem {
+  public description: string | undefined;
+  public command: { command: string; title: string; arguments?: unknown[] } | undefined;
+
+  public constructor(
+    public label: string,
+    public collapsibleState: number = TreeItemCollapsibleState.None,
+  ) {}
+}
 
 export const commands = {
   registerCommand: vi.fn((commandId: string, _handler: (...args: unknown[]) => unknown) => {
@@ -106,9 +132,14 @@ export interface MockWebview {
 export interface MockWebviewPanel {
   webview: MockWebview;
   visible: boolean;
+  active: boolean;
   readonly onDidDispose: (listener: () => unknown) => Disposable;
-  readonly reveal: ReturnType<typeof vi.fn>;
-  readonly dispose: ReturnType<typeof vi.fn>;
+  readonly onDidChangeViewState: (
+    listener: (event: { webviewPanel: MockWebviewPanel }) => unknown,
+  ) => Disposable;
+  readonly reveal: Mock<(...args: unknown[]) => unknown>;
+  readonly dispose: Mock<() => void>;
+  readonly fireViewState: (active: boolean) => void;
 }
 
 function createMockWebview(): MockWebview {
@@ -126,20 +157,34 @@ function createMockWebview(): MockWebview {
 
 function createMockWebviewPanel(): MockWebviewPanel {
   const disposeEmitter = new EventEmitter<void>();
+  const viewStateEmitter = new EventEmitter<{ webviewPanel: MockWebviewPanel }>();
   const panel: MockWebviewPanel = {
     webview: createMockWebview(),
     visible: true,
+    active: true,
     onDidDispose: disposeEmitter.event,
+    onDidChangeViewState: viewStateEmitter.event,
     reveal: vi.fn(),
     dispose: vi.fn(() => {
       disposeEmitter.fire();
     }),
+    fireViewState: (active: boolean) => {
+      panel.active = active;
+      viewStateEmitter.fire({ webviewPanel: panel });
+    },
   };
   return panel;
 }
 
 export const window = {
+  showQuickPick: vi.fn(async (items: readonly unknown[], _options?: unknown) => {
+    void items;
+    return undefined as unknown;
+  }),
+  showWarningMessage: vi.fn(async (_message: string, ..._items: string[]) => undefined as string | undefined),
+  showInformationMessage: vi.fn(async (_message: string, ..._items: string[]) => undefined as string | undefined),
   registerWebviewViewProvider: vi.fn(() => new Disposable()),
+  registerTreeDataProvider: vi.fn(() => new Disposable()),
   createWebviewPanel: vi.fn(
     (
       _viewType: string,
@@ -161,10 +206,20 @@ export const window = {
 };
 
 export function resetMocks(): void {
-  setConfiguration({});
+  configuration.clear();
   commands.registerCommand.mockClear();
   commands.executeCommand.mockClear();
+  window.showQuickPick.mockReset();
+  window.showQuickPick.mockImplementation(async (items: readonly unknown[], _options?: unknown) => {
+    void items;
+    return undefined as unknown;
+  });
+  window.showWarningMessage.mockReset();
+  window.showWarningMessage.mockResolvedValue(undefined);
+  window.showInformationMessage.mockReset();
+  window.showInformationMessage.mockResolvedValue(undefined);
   window.registerWebviewViewProvider.mockClear();
+  window.registerTreeDataProvider.mockClear();
   window.createWebviewPanel.mockClear();
   window.createWebviewPanel.mockImplementation(
     (
@@ -178,6 +233,7 @@ export function resetMocks(): void {
   window.activeTextEditor = undefined;
   workspace.getConfiguration.mockClear();
   env.shell = "/bin/mock-shell";
+  env.remoteName = undefined;
   env.clipboard.writeText.mockClear();
   env.clipboard.readText.mockClear();
 }
@@ -186,6 +242,9 @@ export default {
   Disposable,
   EventEmitter,
   Uri,
+  TreeItem,
+  TreeItemCollapsibleState,
+  ConfigurationTarget,
   workspace,
   env,
   window,
