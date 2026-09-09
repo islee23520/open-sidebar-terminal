@@ -1,3 +1,7 @@
+import { createHash } from "node:crypto";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import type { HerdrAttachTarget } from "./HerdrAttachController";
 import {
   HerdrNotInstalledError,
   HerdrProtocolError,
@@ -24,6 +28,7 @@ interface HerdrCliClientOptions {
   readonly run: HerdrCommandRunner;
   readonly invocation: HerdrInvocation;
   readonly timers?: HerdrTimers;
+  readonly localDagMetadata?: boolean;
 }
 
 interface AgentListEnvelope {
@@ -47,11 +52,62 @@ export class HerdrCliClient {
   private readonly run: HerdrCommandRunner;
   private readonly invocation: HerdrInvocation;
   private readonly timers: HerdrTimers;
+  private readonly localDagMetadata: boolean;
 
   public constructor(options: HerdrCliClientOptions) {
     this.run = options.run;
     this.invocation = options.invocation;
     this.timers = options.timers ?? defaultTimers;
+    this.localDagMetadata = options.localDagMetadata ?? true;
+  }
+
+  public async findDagPane(parentPane: string): Promise<HerdrAttachTarget | undefined> {
+    const home = this.invocation.env.HOME ?? this.invocation.env.USERPROFILE;
+    const directory = this.invocation.env.OMO_HERDR_DAG_STATE_DIR ?? (home ? join(home, ".omo", "agent", "herdr-dag") : undefined);
+    if (!this.localDagMetadata || directory === undefined) {
+      return undefined;
+    }
+    const status = await this.execute(["status", "--json"]);
+    this.throwForFailure(status, "status");
+    const endpoint: unknown = JSON.parse(status.stdout);
+    if (!this.isRecord(endpoint) || !this.isRecord(endpoint.server) || typeof endpoint.server.socket !== "string") {
+      throw new HerdrProtocolError(this.invocation.displayEndpoint, "status did not contain server.socket");
+    }
+    let files: string[];
+    try {
+      files = await readdir(directory);
+    } catch (error) {
+      if (this.isRecord(error) && error.code === "ENOENT") return undefined;
+      throw error;
+    }
+    const candidates: Array<{ paneId: string; updatedAt: string }> = [];
+    for (const file of files.filter((name) => /^[a-f0-9]{24}\.pane\.json$/.test(name))) {
+      const key = file.slice(0, 24);
+      try {
+        const state: unknown = JSON.parse(await readFile(join(directory, `${key}.json`), "utf8"));
+        if (!this.isRecord(state) || typeof state.sessionId !== "string" || state.connected !== true) continue;
+        const expected = createHash("sha256").update(JSON.stringify([endpoint.server.socket, parentPane, state.sessionId])).digest("hex").slice(0, 24);
+        if (expected !== key) continue;
+        const record: unknown = JSON.parse(await readFile(join(directory, file), "utf8"));
+        if (this.isRecord(record) && record.ready === true && typeof record.paneId === "string") {
+          candidates.push({ paneId: record.paneId, updatedAt: typeof state.updatedAt === "string" ? state.updatedAt : "" });
+        }
+      } catch (error) {
+        if (error instanceof SyntaxError || (this.isRecord(error) && error.code === "ENOENT")) continue;
+        throw error;
+      }
+    }
+    candidates.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const candidate = candidates[0];
+    if (!candidate) return undefined;
+    const result = await this.execute(["pane", "get", candidate.paneId]);
+    if (result.code !== 0 && /pane_not_found|unknown pane|pane .*not found/i.test(`${result.stdout} ${result.stderr}`)) return undefined;
+    this.throwForFailure(result, "DAG pane get");
+    const parsed: unknown = JSON.parse(result.stdout);
+    if (!this.isRecord(parsed) || !this.isRecord(parsed.result) || !this.isRecord(parsed.result.pane) || parsed.result.pane.pane_id !== candidate.paneId || typeof parsed.result.pane.terminal_id !== "string") {
+      throw new HerdrProtocolError(this.invocation.displayEndpoint, "DAG pane get returned an invalid pane");
+    }
+    return { terminalId: parsed.result.pane.terminal_id, label: "DAG" };
   }
 
   public async versionCheck(): Promise<{ readonly version: string }> {

@@ -12,9 +12,11 @@ import type {
 import { herdrSessionId } from "../herdr/HerdrAttachController";
 import type { CursorStyle, HostMessage, TerminalConfig, WebviewMessage } from "../types";
 import { TerminalManager } from "../terminals/TerminalManager";
+import type { TerminalTransport } from "../terminals/TerminalTransport";
 import { renderTerminalHtml } from "../webview/terminal/html";
 
 const TERMINAL_ID = "sidebar-shell";
+const DAG_TERMINAL_ID = "sidebar-dag";
 const EDITOR_VIEW_TYPE = "ulw.terminalEditor";
 const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
@@ -39,6 +41,15 @@ export class TerminalProvider
   private readonly disposables: vscode.Disposable[] = [];
   private readonly herdrSessions = new Map<string, HerdrEditorSession>();
   private activeTerminalId = TERMINAL_ID;
+  private dagDiscovery: (() => Promise<HerdrAttachTarget | undefined>) | undefined;
+  private dagFactory: ((target: HerdrAttachTarget, cols: number, rows: number) => TerminalTransport) | undefined;
+  private dagTarget: string | undefined;
+  private dagClosedTarget: string | undefined;
+  private dagGeneration = 0;
+  private dagRefresh: Promise<void> | undefined;
+  private dagDimensions = { cols: 80, rows: 24 };
+  private dagReady = false;
+  private dagMessage = "Select a Herdr agent to view its existing DAG pane.";
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
@@ -47,6 +58,12 @@ export class TerminalProvider
   ) {
     this.disposables.push(
       terminalManager.onData(({ id, data, replay }) => {
+        if (id === DAG_TERMINAL_ID) {
+          if (replay === "replace") this.postToSurface("sidebar", { type: "reset" });
+          this.postToSurface("sidebar", { type: "output", data });
+          this.postToSurface("sidebar", { type: "sourceState", source: "herdr", phase: "attached", label: "DAG" });
+          return;
+        }
         if (id === TERMINAL_ID) {
           if (replay === "replace") {
             this.postMessage({ type: "reset" });
@@ -64,6 +81,12 @@ export class TerminalProvider
         void session.panel.webview.postMessage({ type: "output", data });
       }),
       terminalManager.onExit(({ id, code, signal }) => {
+        if (id === DAG_TERMINAL_ID) {
+          this.dagClosedTarget = this.dagTarget;
+          this.dagTarget = undefined;
+          this.showDagMessage("DAG pane closed or control unavailable. Select another agent or refresh to retry.");
+          return;
+        }
         if (id === TERMINAL_ID) {
           if (
             this.terminalManager.activeSource(TERMINAL_ID) === "herdr-control" ||
@@ -87,11 +110,20 @@ export class TerminalProvider
         if (event.affectsConfiguration("ulw.sidebar.enabled")) {
           this.applySidebarVisibility();
         }
+        if (event.affectsConfiguration("ulw.herdr") || event.affectsConfiguration("ulw.sidebar.enabled")) {
+          this.resetDag();
+          if (!this.herdrEnabled()) {
+            this.openAtConfiguredLocation();
+            if (this.view) this.view.title = "Terminal";
+            if (this.view) this.view.webview.html = this.renderHtml(this.view.webview);
+          }
+        }
       }),
     );
   }
 
   public resolveWebviewView(webviewView: vscode.WebviewView): void {
+    this.dagReady = false;
     this.view = webviewView;
     this.configureWebview(webviewView.webview);
     this.disposables.push(
@@ -100,6 +132,8 @@ export class TerminalProvider
       }),
       webviewView.onDidDispose(() => {
         if (this.view === webviewView) {
+          this.resetDag();
+          this.dagReady = false;
           this.view = undefined;
         }
       }),
@@ -134,6 +168,65 @@ export class TerminalProvider
 
   public write(data: string): void {
     this.terminalManager.write(this.activeTerminalId, data);
+  }
+
+  public configureDag(
+    discover: () => Promise<HerdrAttachTarget | undefined>,
+    factory: (target: HerdrAttachTarget, cols: number, rows: number) => TerminalTransport,
+  ): void {
+    this.resetDag();
+    this.dagDiscovery = discover;
+    this.dagFactory = factory;
+  }
+
+  public resetDag(): void {
+    this.dagGeneration += 1;
+    this.dagRefresh = undefined;
+    this.terminalManager.detach(DAG_TERMINAL_ID);
+    this.dagTarget = undefined;
+    this.dagClosedTarget = undefined;
+    if (this.herdrEnabled()) this.showDagMessage("Select a Herdr agent to view its existing DAG pane.");
+  }
+
+  public refreshDag(): Promise<void> {
+    if (this.dagRefresh) return this.dagRefresh;
+    if (!this.herdrEnabled() || !this.sidebarEnabled() || !this.dagReady || !this.dagDiscovery || !this.dagFactory) return Promise.resolve();
+    const generation = this.dagGeneration;
+    this.dagRefresh = this.dagDiscovery().then((target) => {
+      if (generation !== this.dagGeneration || !this.herdrEnabled() || !this.sidebarEnabled()) return;
+      if (!target) {
+        this.terminalManager.detach(DAG_TERMINAL_ID);
+        this.dagTarget = undefined;
+        this.showDagMessage("No available DAG pane for this agent. Open the DAG in OMO first. Remote forwarding cannot read plugin metadata.");
+        return;
+      }
+      if (target.terminalId === this.dagTarget || target.terminalId === this.dagClosedTarget) return;
+      this.terminalManager.detach(DAG_TERMINAL_ID);
+      this.dagTarget = target.terminalId;
+      this.showDagMessage("Connecting to DAG pane...");
+      const factory = this.dagFactory;
+      if (factory) this.terminalManager.attach(DAG_TERMINAL_ID, () => factory(target, this.dagDimensions.cols, this.dagDimensions.rows));
+    }).catch((error: unknown) => {
+      if (generation !== this.dagGeneration) return;
+      this.terminalManager.detach(DAG_TERMINAL_ID);
+      this.dagTarget = undefined;
+      this.showDagMessage(`DAG unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    }).finally(() => {
+      if (generation === this.dagGeneration) this.dagRefresh = undefined;
+    });
+    return this.dagRefresh;
+  }
+
+  private showDagMessage(message: string): void {
+    this.dagMessage = message;
+    if (this.view) this.view.title = "DAG";
+    this.postToSurface("sidebar", { type: "reset" });
+    this.postToSurface("sidebar", { type: "output", data: message.replace(/[\x00-\x1f\x7f]/g, " ") + "\r\n" });
+    this.postToSurface("sidebar", { type: "sourceState", source: "herdr", phase: "error", message });
+  }
+
+  private herdrEnabled(): boolean {
+    return vscode.workspace.getConfiguration("ulw").get<boolean>("herdr.enabled", false);
   }
 
   public async openHerdrSession(
@@ -228,7 +321,12 @@ export class TerminalProvider
     }
     this.herdrSessions.delete(sessionId);
     this.herdrSessions.set(sessionId, session);
+    const changed = this.activeTerminalId !== sessionId;
     this.activeTerminalId = sessionId;
+    if (changed) {
+      this.resetDag();
+      void this.refreshDag();
+    }
   }
 
   public postReset(): void {
@@ -253,6 +351,7 @@ export class TerminalProvider
 
   public dispose(): void {
     this.disposing = true;
+    this.resetDag();
     for (const [sessionId, session] of this.herdrSessions) {
       session.controller.dispose();
       session.panel.dispose();
@@ -336,6 +435,35 @@ export class TerminalProvider
   }
 
   private handleMessage(message: WebviewMessage, source: TerminalLocation): void {
+    if (source === "sidebar" && this.view) {
+      if (message.type === "ready") this.dagReady = true;
+      if (message.type === "ready" || message.type === "resize") {
+        this.dagDimensions = { cols: message.cols, rows: message.rows };
+      }
+    }
+    if (source === "sidebar" && this.herdrEnabled()) {
+      if (!this.sidebarEnabled()) return;
+      if (message.type === "ready") {
+        this.postToSurface("sidebar", { type: "config", ...this.readConfig() });
+        const replay = this.terminalManager.replay(DAG_TERMINAL_ID);
+        if (replay) {
+          this.postToSurface("sidebar", { type: "reset" });
+          this.postToSurface("sidebar", { type: "output", data: replay });
+          this.postToSurface("sidebar", { type: "sourceState", source: "herdr", phase: "attached", label: "DAG" });
+          this.terminalManager.resize(DAG_TERMINAL_ID, message.cols, message.rows);
+        } else this.showDagMessage(this.dagMessage);
+        void this.refreshDag();
+      } else if (message.type === "resize") {
+        this.terminalManager.resize(DAG_TERMINAL_ID, message.cols, message.rows);
+      } else if (message.type === "input" && message.data) {
+        this.terminalManager.write(DAG_TERMINAL_ID, message.data);
+      } else if (message.type === "scroll") {
+        this.terminalManager.scroll(DAG_TERMINAL_ID, message);
+      } else if (message.type === "copy" && message.text) {
+        void vscode.env.clipboard.writeText(message.text);
+      }
+      return;
+    }
     switch (message.type) {
       case "ready": {
         const isActive = source === this.activeLocation;
@@ -411,7 +539,7 @@ export class TerminalProvider
       return;
     }
 
-    void this.view?.webview.postMessage(message);
+    if (!this.herdrEnabled() || message.type === "config") void this.view?.webview.postMessage(message);
     void this.editorPanel?.webview.postMessage(message);
   }
 

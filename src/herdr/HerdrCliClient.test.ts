@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { createHash } from "node:crypto";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   HerdrNotInstalledError,
   HerdrProtocolError,
@@ -22,6 +26,39 @@ function result(stdout: string, stderr = "", code = 0) {
 }
 
 describe("HerdrCliClient", () => {
+  test.each([false, true])("discovers only the live DAG associated with this socket and parent (custom directory: %s)", async (customDirectory) => {
+    const home = await mkdtemp(join(tmpdir(), "ulw-dag-test-"));
+    try {
+      const dir = customDirectory ? join(home, "custom-plugin-state") : join(home, ".omo/agent/herdr-dag");
+      await mkdir(dir, { recursive: true });
+      const key = createHash("sha256").update(JSON.stringify(["/server.sock", "w1:p1", "session-a"])).digest("hex").slice(0, 24);
+      await writeFile(join(dir, `${key}.json`), JSON.stringify({ sessionId: "session-a", connected: true, updatedAt: "2026-09-09" }));
+      await writeFile(join(dir, `${key}.pane.json`), JSON.stringify({ paneId: "w1:p2", ready: true }));
+      const run = vi.fn<HerdrCommandRunner>(async (_command, args) => result(JSON.stringify(
+        args.includes("status") ? { server: { socket: "/server.sock" } } : { result: { pane: { pane_id: "w1:p2", terminal_id: "dag-terminal" } } },
+      )));
+      const client = new HerdrCliClient({ run, invocation: { ...invocation, env: { HOME: home, ...(customDirectory ? { OMO_HERDR_DAG_STATE_DIR: dir } : {}) } } });
+      await expect(client.findDagPane("w1:p1")).resolves.toEqual({ terminalId: "dag-terminal", label: "DAG" });
+      await expect(client.findDagPane("w1:p9")).resolves.toBeUndefined();
+      await writeFile(join(dir, `${key}.pane.json`), "{broken");
+      await expect(client.findDagPane("w1:p1")).resolves.toBeUndefined();
+      await writeFile(join(dir, `${key}.pane.json`), JSON.stringify({ paneId: "w1:p2", ready: true }));
+      run.mockImplementation(async (_command, args) => args.includes("status") ? result(JSON.stringify({ server: { socket: "/other.sock" } })) : result("", "pane_not_found", 1));
+      await expect(client.findDagPane("w1:p1")).resolves.toBeUndefined();
+      run.mockImplementation(async (_command, args) => args.includes("status") ? result(JSON.stringify({ server: { socket: "/server.sock" } })) : result("", "pane_not_found", 1));
+      await expect(client.findDagPane("w1:p1")).resolves.toBeUndefined();
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  test("never reads local DAG metadata for a forwarded host", async () => {
+    const run = vi.fn<HerdrCommandRunner>();
+    const client = new HerdrCliClient({ run, invocation, localDagMetadata: false });
+    await expect(client.findDagPane("w1:p1")).resolves.toBeUndefined();
+    expect(run).not.toHaveBeenCalled();
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });
