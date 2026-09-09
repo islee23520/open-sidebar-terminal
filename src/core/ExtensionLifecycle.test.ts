@@ -139,6 +139,66 @@ function createHerdrHarness(options: {
 }
 
 describe("ExtensionLifecycle", () => {
+  it.each(["pending", "failed"] as const)("blocks old-host commands and API while forwarding is %s", async (outcome) => {
+    vscode.resetMocks();
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    vscode.workspace.workspaceFolders = [{ uri: vscode.Uri.file("/workspace/one") }];
+    let resolveStart: (value: { apiSocketPath: string; clientSocketPath: string }) => void = () => undefined;
+    let rejectStart: (error: Error) => void = () => undefined;
+    const start = new Promise<{ apiSocketPath: string; clientSocketPath: string }>((resolve, reject) => {
+      resolveStart = resolve;
+      rejectStart = reject;
+    });
+    let reportFailure: () => void = () => undefined;
+    const failed = new Promise<void>((resolve) => { reportFailure = resolve; });
+    const calls: string[] = [];
+    const bridges: HerdrInvocation[] = [];
+    const lifecycle = new ExtensionLifecycle({
+      env: { HOME: "/qa-home" },
+      explorerPollMs: 0,
+      createSocketForward: () => ({ start: () => start, dispose: vi.fn() }),
+      createCliClient: (invocation) => ({
+        versionCheck: async () => { calls.push(invocation.displayEndpoint); return { version: "0.9.0" }; },
+        listAgents: async () => { calls.push(invocation.displayEndpoint); return [agent()]; },
+        listWorkspaces: async () => { calls.push(invocation.displayEndpoint); return []; },
+      }),
+      createAttachController: (options) => ({
+        sourceState: { source: "shell", phase: "shell" },
+        onSourceState: new vscode.EventEmitter<never>().event,
+        attach: async (target: { terminalId: string }) => { options.transportFactory(target, { cols: 80, rows: 24 }); },
+        detach: vi.fn(), dispose: vi.fn(),
+      }) as never,
+      createControlTransport: (options) => { bridges.push(options.invocation); return {} as TerminalTransport; },
+    });
+    const api = lifecycle.activate(createContext() as never);
+    await api.refreshExplorer();
+    vscode.env.remoteName = "ssh-remote+qa";
+    vscode.setConfiguration({ "ulw.herdr.remoteTarget": "qa@remote" });
+    vscode.window.showWarningMessage.mockImplementation(async () => { reportFailure(); return undefined; });
+    vscode.fireConfigurationChange("ulw.herdr.remoteTarget");
+    if (outcome === "failed") { rejectStart(new Error("forward refused")); await failed; }
+    calls.length = 0;
+    vscode.window.showQuickPick.mockImplementation(async (items) => items[0]);
+    try {
+      await commandHandler<() => Promise<void>>("ulw.herdr.showMenu")();
+      await commandHandler<() => Promise<void>>("ulw.attachHerdrSession")();
+      await commandHandler<(node: { kind: "agent"; agent: HerdrAgent }) => Promise<void>>("ulw.herdr.openAgent")({ kind: "agent", agent: agent() });
+      await api.attachToHerdr({ terminalId: "stale-local-target" });
+      await api.refreshExplorer();
+      expect(calls).toEqual([]);
+      expect(bridges).toHaveLength(0);
+      expect(vscode.window.showQuickPick).not.toHaveBeenCalled();
+      if (outcome === "pending") {
+        resolveStart({ apiSocketPath: "/tmp/qa-forward.sock", clientSocketPath: "/tmp/qa-forward-client.sock" });
+        await start;
+        await api.refreshExplorer();
+        await commandHandler<() => Promise<void>>("ulw.herdr.showMenu")();
+        expect(bridges).toHaveLength(1);
+        expect(bridges[0]?.env.HERDR_SOCKET_PATH).toBe("/tmp/qa-forward.sock");
+      }
+    } finally { lifecycle.dispose(); }
+  });
+
   it("ignores the nested attach picker after disabling Herdr", async () => {
     vscode.resetMocks();
     const { lifecycle, controller } = createHerdrHarness({ agents: [agent()] });

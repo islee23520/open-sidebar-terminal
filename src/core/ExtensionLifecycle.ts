@@ -127,6 +127,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
   private readonly herdrControllers = new Map<string, HerdrAttachController>();
   private activeForward: HerdrSocketForwardHandle | undefined;
   private herdrGeneration = 0;
+  private herdrReady = true;
   private readonly sourceStateEmitter = new vscode.EventEmitter<SourceState>();
   private readonly disposables: vscode.Disposable[] = [];
 
@@ -146,10 +147,19 @@ export class ExtensionLifecycle implements vscode.Disposable {
     const terminalManager = new TerminalManager();
     let invocation = this.resolveHerdrInvocation();
     let client = this.createCliClient(invocation);
+    const currentResult = async <T>(operation: (endpoint: HerdrCli) => Promise<T>): Promise<T> => {
+      const generation = this.herdrGeneration;
+      if (!this.herdrReady) throw new HerdrServerDownError(invocation.displayEndpoint, "Endpoint initialization is incomplete");
+      const result = await operation(client);
+      if (!this.herdrReady || generation !== this.herdrGeneration) {
+        throw new HerdrServerDownError(invocation.displayEndpoint, "Endpoint changed during discovery");
+      }
+      return result;
+    };
     const sharedClient: HerdrCli = {
-      versionCheck: () => client.versionCheck(),
-      listAgents: () => client.listAgents(),
-      listWorkspaces: () => client.listWorkspaces(),
+      versionCheck: () => currentResult((endpoint) => endpoint.versionCheck()),
+      listAgents: () => currentResult((endpoint) => endpoint.listAgents()),
+      listWorkspaces: () => currentResult((endpoint) => endpoint.listWorkspaces()),
     };
     const createControlTransport =
       this.options.createControlTransport ??
@@ -168,6 +178,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
     this.terminalManager = terminalManager;
     this.provider = provider;
     provider.configureDag(async () => {
+      if (!this.herdrReady) return undefined;
       const agents = explorerStore.agents();
       const active = agents.find((agent) => herdrSessionId(agent.terminalId) === provider.activeSessionId());
       const local = agents.filter((agent) => isCurrentWindowRoot(agent.cwd, vscode.workspace.workspaceFolders));
@@ -200,6 +211,8 @@ export class ExtensionLifecycle implements vscode.Disposable {
     };
 
     const bootstrapHerdrRuntime = async (store: HerdrSnapshotStore): Promise<void> => {
+      this.herdrReady = false;
+      store.stopWatch();
       updateStatus();
       provider.resetDag();
       this.herdrGeneration += 1;
@@ -228,12 +241,15 @@ export class ExtensionLifecycle implements vscode.Disposable {
         try {
           forwardSockets = await handle.start();
         } catch (error) {
+          handle.dispose();
+          if (generation !== this.herdrGeneration) return;
           const message = error instanceof Error ? error.message : String(error);
           console.error(`[ULW Herdr] ssh forward failed: ${message}`);
           this.activeForward = undefined;
           void vscode.window.showWarningMessage(
             `Herdr ssh forward failed: ${message}`,
           );
+          return;
         }
         if (generation !== this.herdrGeneration) {
           handle.dispose();
@@ -247,6 +263,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
         forwardSockets ? { remoteTarget, forwardSockets } : undefined,
       );
       client = this.createCliClient(invocation);
+      this.herdrReady = true;
       if (this.herdrEnabled()) {
         this.startExplorerWatch(store);
         if (configuration.get<boolean>("sidebar.enabled", true)) {
@@ -306,7 +323,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
         await this.attachHerdrSession(client, invocation, makeController);
       }),
       vscode.commands.registerCommand("ulw.herdr.openDag", async () => {
-        if (!this.herdrEnabled()) return;
+        if (!this.herdrEnabled() || !this.herdrReady) return;
         const generation = this.herdrGeneration;
         const configuration = vscode.workspace.getConfiguration("ulw");
         if (!configuration.get<boolean>("sidebar.enabled", true)) {
@@ -319,14 +336,14 @@ export class ExtensionLifecycle implements vscode.Disposable {
         await provider.refreshDag();
       }),
       vscode.commands.registerCommand("ulw.herdr.showMenu", async () => {
-        if (!this.herdrEnabled()) return;
+        if (!this.herdrEnabled() || !this.herdrReady) return;
         const generation = this.herdrGeneration;
         type Action = "attach" | "detach" | "refresh" | "dag";
         type Item = HerdrQuickPickItem | (vscode.QuickPickItem & { readonly action: Action });
         let agents: readonly HerdrAgent[] = [];
         try {
-          await client.versionCheck();
-          agents = await client.listAgents();
+          await sharedClient.versionCheck();
+          agents = await sharedClient.listAgents();
         } catch (error) {
           await vscode.window.showWarningMessage(error instanceof Error ? error.message : String(error));
         }
@@ -468,6 +485,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
       },
       attachToHerdr: (target) => this.openHerdrTarget(makeController, target),
       detachHerdr: async () => {
+        if (!this.herdrReady) return;
         const active = this.activeHerdrController();
         if (active) {
           await active.detach();
@@ -492,7 +510,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
         agents: explorerStore.agents(),
       }),
       refreshExplorer: async () => {
-        if (!this.herdrEnabled()) {
+        if (!this.herdrEnabled() || !this.herdrReady) {
           return;
         }
         await this.refreshExplorerStore(explorerStore);
@@ -505,6 +523,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
   }
 
   public dispose(): void {
+    this.herdrReady = false;
     this.herdrGeneration += 1;
     this.activeForward?.dispose();
     this.activeForward = undefined;
@@ -522,7 +541,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
 
   private async requireHerdrEnabled(): Promise<boolean> {
     if (this.herdrEnabled()) {
-      return true;
+      return this.herdrReady;
     }
     const action = await vscode.window.showInformationMessage(
       "Turn on ULW Herdr integration to list Spaces/Agents and attach sessions.",
@@ -538,7 +557,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
       this.startExplorerWatch(this.explorerStore);
       await this.refreshExplorerStore(this.explorerStore);
     }
-    return true;
+    return this.herdrReady;
   }
 
   private startExplorerWatch(store: HerdrSnapshotStore): void {
@@ -611,6 +630,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
     showInvocationWarnings = true,
   ): Promise<void> {
     const generation = this.herdrGeneration;
+    if (!this.herdrReady) return;
     if (showInvocationWarnings) {
       for (const warning of invocation.warnings) {
         await vscode.window.showWarningMessage(warning);
@@ -678,7 +698,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
     target: HerdrAttachTarget,
   ): Promise<void> {
     const provider = this.provider;
-    if (!provider) {
+    if (!provider || !this.herdrReady || !this.herdrEnabled()) {
       return;
     }
     let attachFailure: string | undefined;
