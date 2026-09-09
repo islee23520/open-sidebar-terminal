@@ -33,9 +33,10 @@ interface TestWebview {
 function lastResult<T>(results: readonly { value: T }[]) {
   return results[results.length - 1];
 }
-function createView(): { readonly view: unknown; readonly webview: TestWebview; dispose(): void } {
+function createView() {
   const messageEmitter = new vscode.EventEmitter<WebviewMessage>();
   const disposeEmitter = new vscode.EventEmitter<void>();
+  const visibilityEmitter = new vscode.EventEmitter<void>();
   const webview: TestWebview = {
     html: "",
     options: undefined,
@@ -45,13 +46,12 @@ function createView(): { readonly view: unknown; readonly webview: TestWebview; 
     onDidReceiveMessage: messageEmitter.event,
     send: (message) => messageEmitter.fire(message),
   };
+  const view = { webview, visible: true, onDidDispose: disposeEmitter.event, onDidChangeVisibility: visibilityEmitter.event };
   return {
-    view: {
-      webview,
-      onDidDispose: disposeEmitter.event,
-    },
+    view,
     webview,
     dispose: () => disposeEmitter.fire(),
+    setVisible: (visible: boolean) => { view.visible = visible; visibilityEmitter.fire(); },
   };
 }
 
@@ -132,6 +132,69 @@ describe("TerminalProvider", () => {
   beforeEach(() => {
     vscode.resetMocks();
     vscode.setConfiguration({ "ulw.sidebar.enabled": true });
+  });
+
+  it("releases hidden DAG ownership and rediscovers on reveal without reopening a closed pane", async () => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    const transports: FakeHerdrTransport[] = [];
+    const factory = vi.fn(() => { const transport = new FakeHerdrTransport(); transports.push(transport); return transport; });
+    provider.configureDag(async () => ({ terminalId: "visible-dag" }), factory);
+    const surface = createView();
+    provider.resolveWebviewView(surface.view as never);
+    try {
+      surface.webview.send({ type: "ready", cols: 80, rows: 24 });
+      await provider.refreshDag();
+      transports[0].output("FULL", "replace");
+      surface.setVisible(false);
+      expect(transports[0].close).toHaveBeenCalledOnce();
+      expect(manager.activeSource("sidebar-dag")).toBeUndefined();
+      surface.webview.send({ type: "input", data: "q" });
+      expect(transports[0].write).not.toHaveBeenCalled();
+      surface.setVisible(true);
+      await provider.refreshDag();
+      expect(factory).toHaveBeenCalledOnce();
+      surface.webview.send({ type: "ready", cols: 80, rows: 24 });
+      await provider.refreshDag();
+      expect(factory).toHaveBeenCalledTimes(2);
+      transports[1].output("NEW FULL", "replace");
+      transports[1].exit("pane-exited");
+      surface.setVisible(false);
+      surface.setVisible(true);
+      surface.webview.send({ type: "ready", cols: 80, rows: 24 });
+      await provider.refreshDag();
+      expect(factory).toHaveBeenCalledTimes(2);
+    } finally { provider.dispose(); manager.dispose(); }
+  });
+
+  it("invalidates hidden inflight discovery and waits for the revealed document readiness", async () => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    let resolve: (target: { terminalId: string }) => void = () => undefined;
+    const target = new Promise<{ terminalId: string }>((done) => { resolve = done; });
+    const factory = vi.fn(() => new FakeHerdrTransport());
+    provider.configureDag(() => target, factory);
+    const surface = createView();
+    surface.setVisible(false);
+    provider.resolveWebviewView(surface.view as never);
+    try {
+      surface.setVisible(true);
+      await provider.refreshDag();
+      expect(factory).not.toHaveBeenCalled();
+      surface.webview.send({ type: "ready", cols: 80, rows: 24 });
+      const pending = provider.refreshDag();
+      surface.setVisible(false);
+      resolve({ terminalId: "late-dag" });
+      await pending;
+      expect(factory).not.toHaveBeenCalled();
+      surface.dispose();
+      surface.setVisible(true);
+      surface.webview.send({ type: "ready", cols: 80, rows: 24 });
+      await provider.refreshDag();
+      expect(factory).not.toHaveBeenCalled();
+    } finally { provider.dispose(); manager.dispose(); }
   });
 
   it("starts current DAG discovery without waiting for an invalidated request", async () => {

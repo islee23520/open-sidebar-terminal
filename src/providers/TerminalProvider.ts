@@ -129,7 +129,20 @@ export class TerminalProvider
     this.configureWebview(webviewView.webview);
     this.disposables.push(
       webviewView.webview.onDidReceiveMessage((message: WebviewMessage) => {
+        if (this.view !== webviewView) return;
         this.handleMessage(message, "sidebar");
+      }),
+      webviewView.onDidChangeVisibility(() => {
+        if (this.view !== webviewView || !this.herdrEnabled()) return;
+        if (webviewView.visible) {
+          void this.refreshDag();
+        } else {
+          const closedTarget = this.dagClosedTarget;
+          this.resetDag();
+          this.dagClosedTarget = closedTarget;
+          this.dagReady = false;
+          webviewView.webview.html = this.renderHtml(webviewView.webview);
+        }
       }),
       webviewView.onDidDispose(() => {
         if (this.view === webviewView) {
@@ -191,10 +204,10 @@ export class TerminalProvider
 
   public refreshDag(): Promise<void> {
     if (this.dagRefresh) return this.dagRefresh;
-    if (!this.herdrEnabled() || !this.sidebarEnabled() || !this.dagReady || !this.dagDiscovery || !this.dagFactory) return Promise.resolve();
+    if (!this.herdrEnabled() || !this.sidebarEnabled() || !this.view?.visible || !this.dagReady || !this.dagDiscovery || !this.dagFactory) return Promise.resolve();
     const generation = this.dagGeneration;
     this.dagRefresh = this.dagDiscovery().then((target) => {
-      if (generation !== this.dagGeneration || !this.herdrEnabled() || !this.sidebarEnabled()) return;
+      if (generation !== this.dagGeneration || !this.herdrEnabled() || !this.sidebarEnabled() || !this.view?.visible) return;
       if (!target) {
         this.terminalManager.detach(DAG_TERMINAL_ID);
         this.dagTarget = undefined;
@@ -445,7 +458,7 @@ export class TerminalProvider
       }
     }
     if (source === "sidebar" && this.herdrEnabled()) {
-      if (!this.sidebarEnabled()) return;
+      if (!this.sidebarEnabled() || !this.view?.visible) return;
       if (message.type === "ready") {
         this.postToSurface("sidebar", { type: "config", ...this.readConfig() });
         const replay = this.terminalManager.replay(DAG_TERMINAL_ID);
