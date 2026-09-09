@@ -176,7 +176,20 @@ function createMockWebviewPanel(): MockWebviewPanel {
   return panel;
 }
 
+export const StatusBarAlignment = {
+  Left: 1,
+  Right: 2,
+} as const;
+
 export const window = {
+  createStatusBarItem: vi.fn(() => ({
+    command: undefined as string | undefined,
+    text: "",
+    tooltip: "",
+    show: vi.fn(),
+    hide: vi.fn(),
+    dispose: vi.fn(),
+  })),
   showQuickPick: vi.fn(async (items: readonly unknown[], _options?: unknown) => {
     void items;
     return undefined as unknown;
@@ -236,6 +249,7 @@ export function resetMocks(): void {
   env.remoteName = undefined;
   env.clipboard.writeText.mockClear();
   env.clipboard.readText.mockClear();
+  window.createStatusBarItem.mockClear();
 }
 
 export default {
@@ -249,5 +263,6 @@ export default {
   env,
   window,
   ViewColumn,
+  StatusBarAlignment,
   commands,
 };

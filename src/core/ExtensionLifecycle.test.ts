@@ -11,6 +11,7 @@ import type { HerdrAgent, HerdrInvocation } from "../herdr/types";
 import type { TerminalTransport } from "../terminals/TerminalTransport";
 import { TerminalManager } from "../terminals/TerminalManager";
 import { ExtensionLifecycle } from "./ExtensionLifecycle";
+import { readFileSync } from "node:fs";
 
 vi.mock("node-pty", async () => vi.importActual("../test/mocks/node-pty"));
 
@@ -138,6 +139,100 @@ function createHerdrHarness(options: {
 }
 
 describe("ExtensionLifecycle", () => {
+  it("Open DAG enables a disabled sidebar and reveals the container", async () => {
+    vscode.resetMocks();
+    const { lifecycle } = createHerdrHarness();
+    vscode.setConfiguration({ "ulw.sidebar.enabled": false });
+    const api = lifecycle.activate(createContext() as never);
+    await api.refreshExplorer();
+    vscode.commands.executeCommand.mockClear();
+    await commandHandler<() => Promise<void>>("ulw.herdr.openDag")();
+    expect(vscode.workspace.getConfiguration("ulw").get("sidebar.enabled")).toBe(true);
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith("workbench.view.extension.ulwContainer");
+    lifecycle.dispose();
+  });
+
+  it("keeps management actions available without agents and detaches only the active controller", async () => {
+    vscode.resetMocks();
+    const { lifecycle, controller } = createHerdrHarness({ phase: "attached" });
+    const api = lifecycle.activate(createContext() as never);
+    await api.refreshExplorer();
+    await api.attachToHerdr({ terminalId: "qa-agent" });
+    vscode.window.showQuickPick.mockResolvedValueOnce({ label: "Detach Active Agent", action: "detach" });
+    await commandHandler<() => Promise<void>>("ulw.herdr.showMenu")();
+    expect(controller.detach).toHaveBeenCalledOnce();
+    expect(vscode.window.showQuickPick.mock.calls[0]?.[0]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: "attach" }), expect.objectContaining({ action: "refresh" }), expect.objectContaining({ action: "dag" }),
+    ]));
+    lifecycle.dispose();
+  });
+
+  it("shows and disposes the Herdr status entry only while enabled", async () => {
+    vscode.resetMocks();
+    const { lifecycle } = createHerdrHarness({ herdrEnabled: false });
+    lifecycle.activate(createContext() as never);
+    const item = vscode.window.createStatusBarItem.mock.results[0]?.value;
+    expect(item).toBeDefined();
+    expect(item?.show).not.toHaveBeenCalled();
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    vscode.fireConfigurationChange("ulw.herdr.enabled");
+    expect(item?.show).toHaveBeenCalled();
+    expect(item?.command).toBe("ulw.herdr.showMenu");
+    vscode.setConfiguration({ "ulw.herdr.enabled": false });
+    vscode.fireConfigurationChange("ulw.herdr.enabled");
+    expect(item?.hide).toHaveBeenCalled();
+    lifecycle.dispose();
+    expect(item?.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("selects agents from management into separate editor tabs and refreshes", async () => {
+    vscode.resetMocks();
+    const first = agent();
+    const second = agent({ terminalId: "terminal-2", title: "Agent two" });
+    const { lifecycle, client, controller } = createHerdrHarness({ agents: [first, second] });
+    const api = lifecycle.activate(createContext() as never);
+    await api.refreshExplorer();
+    const menu = commandHandler<() => Promise<void>>("ulw.herdr.showMenu");
+    vscode.window.showQuickPick.mockResolvedValueOnce({ label: first.title, agent: first });
+    await menu();
+    vscode.window.showQuickPick.mockResolvedValueOnce({ label: second.title, agent: second });
+    await menu();
+    expect(controller.attach).toHaveBeenCalledWith(expect.objectContaining({ terminalId: "terminal-2" }), expect.anything());
+    expect(vscode.window.createWebviewPanel).toHaveBeenCalledTimes(2);
+    const before = client.listWorkspaces.mock.calls.length;
+    vscode.window.showQuickPick.mockResolvedValueOnce({ label: "Refresh", action: "refresh" });
+    await menu();
+    expect(client.listWorkspaces.mock.calls.length).toBeGreaterThan(before);
+    lifecycle.dispose();
+  });
+
+  it("ignores a management selection after Herdr is disabled", async () => {
+    vscode.resetMocks();
+    const { lifecycle, controller } = createHerdrHarness({ agents: [agent()] });
+    const api = lifecycle.activate(createContext() as never);
+    await api.refreshExplorer();
+    vscode.window.showQuickPick.mockImplementationOnce(async () => {
+      vscode.setConfiguration({ "ulw.herdr.enabled": false });
+      vscode.fireConfigurationChange("ulw.herdr.enabled");
+      return { label: "Agent one", agent: agent() };
+    });
+    await commandHandler<() => Promise<void>>("ulw.herdr.showMenu")();
+    expect(controller.attach).not.toHaveBeenCalled();
+    lifecycle.dispose();
+  });
+
+  it("keeps the existing secondary sidebar visible for DAG mode", async () => {
+    vscode.resetMocks();
+    const { lifecycle } = createHerdrHarness();
+    const api = lifecycle.activate(createContext() as never);
+    await api.refreshExplorer();
+    expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith("workbench.action.closeAuxiliaryBar");
+    const manifest = JSON.parse(readFileSync("package.json", "utf8"));
+    expect(manifest.contributes.viewsContainers.secondarySidebar[0].when).toBe("config.ulw.sidebar.enabled");
+    expect(manifest.contributes.views.ulwContainer[0].when).toBe("config.ulw.sidebar.enabled");
+    lifecycle.dispose();
+  });
+
   it("registers exactly one secondary-sidebar provider", () => {
     vscode.resetMocks();
     const context = createContext();
@@ -1193,7 +1288,7 @@ describe("ExtensionLifecycle", () => {
 
     expect(vscode.window.createWebviewPanel).not.toHaveBeenCalled();
     expect(vscode.commands.executeCommand).toHaveBeenCalledWith(
-      "workbench.action.closeAuxiliaryBar",
+      "workbench.view.extension.ulwContainer",
     );
 
     const open = commandHandler<(node: {
