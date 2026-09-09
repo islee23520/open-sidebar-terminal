@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { HerdrAttachTarget } from "./HerdrAttachController";
 import {
@@ -62,11 +63,10 @@ export class HerdrCliClient {
   }
 
   public async findDagPane(parentPane: string): Promise<HerdrAttachTarget | undefined> {
-    const home = this.invocation.env.HOME ?? this.invocation.env.USERPROFILE;
-    const directory = this.invocation.env.OMO_HERDR_DAG_STATE_DIR ?? (home ? join(home, ".omo", "agent", "herdr-dag") : undefined);
-    if (!this.localDagMetadata || directory === undefined) {
+    if (!this.localDagMetadata) {
       return undefined;
     }
+    const directory = this.invocation.env.OMO_HERDR_DAG_STATE_DIR ?? join(homedir(), ".omo", "agent", "herdr-dag");
     const status = await this.execute(["status", "--json"]);
     this.throwForFailure(status, "status");
     const endpoint: unknown = JSON.parse(status.stdout);
