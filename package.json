@@ -2,7 +2,7 @@
   "name": "opencode-sidebar-tui",
   "displayName": "ULW Sidebar Terminal",
   "description": "A fast native shell terminal in the VS Code secondary sidebar.",
-  "version": "1.12.16",
+  "version": "1.13.0",
   "publisher": "islee23520",
   "icon": "icon.png",
   "engines": {

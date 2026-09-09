@@ -5,6 +5,19 @@ All notable changes to the "ULW" extension will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] - 2026-09-09
+
+### Added
+
+- Show the existing parent-associated Herdr DAG in the secondary sidebar while keeping attached agents in separate editor tabs.
+- Add a Herdr status-bar menu for switching agents, managing attachments, refreshing discovery, and opening the DAG even when the sidebar is disabled.
+
+### Fixed
+
+- Validate DAG metadata and live pane identity, select the newest connected session, and wait for a full terminal frame before activating DAG control.
+- Release stale control on endpoint, mode, tab, and sidebar visibility changes; preserve pending resize dimensions and avoid reattaching an externally closed DAG.
+- Keep shell location controls hidden in Herdr mode and preserve the ordinary local shell when Herdr is disabled.
+
 ## [1.12.16] - 2026-09-07
 
 ### Added
