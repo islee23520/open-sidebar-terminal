@@ -217,9 +217,10 @@ export class HerdrAttachController implements vscode.Disposable {
     this.disposeTransportSubscriptions();
     this.resolvePendingAttach();
     if (transport) {
-      void transport.close("release");
       if (this.phase === "attached") {
         this.manager.detach(this.terminalId);
+      } else {
+        void transport.close("release");
       }
     }
     this.managerExitSubscription?.dispose();

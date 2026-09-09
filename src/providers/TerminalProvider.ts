@@ -4,12 +4,11 @@ import * as path from "path";
 import { randomBytes, randomUUID } from "crypto";
 import * as vscode from "vscode";
 import type {
-  HerdrAttachController,
   HerdrAttachPresenter,
   HerdrAttachTarget,
   SourceState,
 } from "../herdr/HerdrAttachController";
-import { herdrSessionId } from "../herdr/HerdrAttachController";
+import { HerdrAttachController, herdrSessionId } from "../herdr/HerdrAttachController";
 import type { CursorStyle, HostMessage, TerminalConfig, WebviewMessage } from "../types";
 import { TerminalManager } from "../terminals/TerminalManager";
 import type { TerminalTransport } from "../terminals/TerminalTransport";
@@ -44,6 +43,7 @@ export class TerminalProvider
   private dagDiscovery: (() => Promise<HerdrAttachTarget | undefined>) | undefined;
   private dagFactory: ((target: HerdrAttachTarget, cols: number, rows: number) => TerminalTransport) | undefined;
   private dagTarget: string | undefined;
+  private dagController: HerdrAttachController | undefined;
   private dagClosedTarget: string | undefined;
   private dagGeneration = 0;
   private dagRefresh: Promise<void> | undefined;
@@ -196,6 +196,8 @@ export class TerminalProvider
   public resetDag(): void {
     this.dagGeneration += 1;
     this.dagRefresh = undefined;
+    this.dagController?.dispose();
+    this.dagController = undefined;
     this.terminalManager.detach(DAG_TERMINAL_ID);
     this.dagTarget = undefined;
     this.dagClosedTarget = undefined;
@@ -209,19 +211,45 @@ export class TerminalProvider
     this.dagRefresh = this.dagDiscovery().then((target) => {
       if (generation !== this.dagGeneration || !this.herdrEnabled() || !this.sidebarEnabled() || !this.view?.visible) return;
       if (!target) {
+        this.dagController?.dispose();
+        this.dagController = undefined;
         this.terminalManager.detach(DAG_TERMINAL_ID);
         this.dagTarget = undefined;
         this.showDagMessage("No available DAG pane for this agent. Open the DAG in OMO first. Remote forwarding cannot read plugin metadata.");
         return;
       }
       if (target.terminalId === this.dagTarget || target.terminalId === this.dagClosedTarget) return;
+      this.dagController?.dispose();
+      this.dagController = undefined;
       this.terminalManager.detach(DAG_TERMINAL_ID);
       this.dagTarget = target.terminalId;
-      this.showDagMessage("Connecting to DAG pane...");
       const factory = this.dagFactory;
-      if (factory) this.terminalManager.attach(DAG_TERMINAL_ID, () => factory(target, this.dagDimensions.cols, this.dagDimensions.rows));
+      if (factory) {
+        const controller = new HerdrAttachController({
+          manager: this.terminalManager,
+          terminalId: DAG_TERMINAL_ID,
+          transportFactory: (candidate, dimensions) => factory(candidate, dimensions.cols, dimensions.rows),
+          presenter: {
+            postReset: () => this.postToSurface("sidebar", { type: "reset" }),
+            postOutput: (data) => this.postToSurface("sidebar", { type: "output", data }),
+            postSourceState: (state) => {
+              if (state.phase === "error") {
+                this.dagClosedTarget = target.terminalId;
+                this.dagTarget = undefined;
+                this.showDagMessage(state.message ?? "DAG control unavailable. Refresh to retry.");
+              } else if (state.source === "herdr") {
+                this.postToSurface("sidebar", { type: "sourceState", ...state, label: "DAG" });
+              }
+            },
+          },
+        });
+        this.dagController = controller;
+        void controller.attach(target, this.dagDimensions);
+      }
     }).catch((error: unknown) => {
       if (generation !== this.dagGeneration) return;
+      this.dagController?.dispose();
+      this.dagController = undefined;
       this.terminalManager.detach(DAG_TERMINAL_ID);
       this.dagTarget = undefined;
       this.showDagMessage(`DAG unavailable: ${error instanceof Error ? error.message : String(error)}`);

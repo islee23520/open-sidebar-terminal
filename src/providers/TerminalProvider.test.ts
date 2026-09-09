@@ -160,11 +160,66 @@ describe("TerminalProvider", () => {
       expect(factory).toHaveBeenCalledTimes(2);
       transports[1].output("NEW FULL", "replace");
       transports[1].exit("pane-exited");
+      await Promise.resolve();
       surface.setVisible(false);
       surface.setVisible(true);
       surface.webview.send({ type: "ready", cols: 80, rows: 24 });
       await provider.refreshDag();
       expect(factory).toHaveBeenCalledTimes(2);
+    } finally { provider.dispose(); manager.dispose(); }
+  });
+
+  it("keeps DAG input and partial frames staged until atomic full-frame cutover", async () => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    const dag = new FakeHerdrTransport();
+    provider.configureDag(async () => ({ terminalId: "staged-dag" }), () => dag);
+    const surface = createView();
+    provider.resolveWebviewView(surface.view as never);
+    surface.webview.send({ type: "ready", cols: 80, rows: 24 });
+    surface.webview.postMessage.mockClear();
+    try {
+      await provider.refreshDag();
+      surface.webview.send({ type: "input", data: "q" });
+      dag.output("PARTIAL", "append");
+      expect(dag.write).not.toHaveBeenCalled();
+      expect(manager.activeSource("sidebar-dag")).toBeUndefined();
+      expect(posted(surface.webview).filter((message) => typeof message === "object" && message !== null && "type" in message && ["reset", "output"].includes(String(message.type)))).toEqual([]);
+      dag.output("FULL DAG", "replace");
+      expect(manager.replay("sidebar-dag")).toBe("FULL DAG");
+      expect(posted(surface.webview)).toContainEqual({ type: "reset" });
+      expect(posted(surface.webview).filter((message) => typeof message === "object" && message !== null && "type" in message && message.type === "output")).toEqual([{ type: "output", data: "FULL DAG" }]);
+      surface.webview.send({ type: "input", data: "j" });
+      expect(dag.write.mock.calls).toEqual([["j"]]);
+    } finally { provider.dispose(); manager.dispose(); }
+    expect(dag.close).toHaveBeenCalledOnce();
+  });
+
+  it.each(["hide", "dispose", "switch", "error"] as const)("releases a staged DAG on %s and never publishes its late frame", async (action) => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    const staged = new FakeHerdrTransport();
+    const next = new FakeHerdrTransport();
+    const discover = vi.fn().mockResolvedValue({ terminalId: "staged" });
+    const factory = vi.fn().mockReturnValueOnce(staged).mockReturnValue(next);
+    provider.configureDag(discover, factory);
+    const surface = createView();
+    provider.resolveWebviewView(surface.view as never);
+    surface.webview.send({ type: "ready", cols: 80, rows: 24 });
+    await provider.refreshDag();
+    try {
+      expect(manager.activeSource("sidebar-dag")).toBeUndefined();
+      if (action === "hide") surface.setVisible(false);
+      if (action === "dispose") surface.dispose();
+      if (action === "switch") { discover.mockResolvedValue({ terminalId: "next" }); await provider.refreshDag(); }
+      if (action === "error") { staged.exit("protocol-error", "bad frame"); await Promise.resolve(); }
+      expect(staged.close).toHaveBeenCalledOnce();
+      surface.webview.postMessage.mockClear();
+      staged.output("LATE OLD", "replace");
+      expect(posted(surface.webview)).not.toContainEqual({ type: "output", data: "LATE OLD" });
+      if (action === "switch") { next.output("NEW DAG", "replace"); expect(manager.replay("sidebar-dag")).toBe("NEW DAG"); }
     } finally { provider.dispose(); manager.dispose(); }
   });
 

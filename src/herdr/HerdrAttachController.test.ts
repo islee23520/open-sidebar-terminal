@@ -56,6 +56,7 @@ class FakeManager implements HerdrAttachManager {
   public source: "local-shell" | "herdr-control" | undefined = "local-shell";
   public shellReplay = "shell replay";
   public shellAlive = true;
+  private attached: TerminalTransport | undefined;
   public readonly attach = vi.fn((
     id: string,
     factory: () => TerminalTransport,
@@ -63,6 +64,7 @@ class FakeManager implements HerdrAttachManager {
   ) => {
     this.log.push(`manager.attach:${id}`);
     const transport = factory();
+    this.attached = transport;
     this.source = "herdr-control";
     transport.onExit(({ reason, message }) => {
       if (this.source === "herdr-control") {
@@ -79,6 +81,9 @@ class FakeManager implements HerdrAttachManager {
   });
   public readonly detach = vi.fn((_id: string) => {
     this.log.push("manager.detach");
+    const attached = this.attached;
+    this.attached = undefined;
+    void attached?.close("release");
     this.source = this.shellAlive ? "local-shell" : undefined;
   });
   public readonly resize = vi.fn((_id: string, cols: number, rows: number) => {
