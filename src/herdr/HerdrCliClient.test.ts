@@ -26,6 +26,24 @@ function result(stdout: string, stderr = "", code = 0) {
 }
 
 describe("HerdrCliClient", () => {
+  test.each(["missing", "unready", "malformed"])("does not fall back to an older DAG when the newest connected session pane is %s", async (paneState) => {
+    const dir = await mkdtemp(join(tmpdir(), "ulw-dag-sessions-"));
+    try {
+      for (const [sessionId, updatedAt] of [["old", "2026-09-08T00:00:00Z"], ["new", "2026-09-09T00:00:00Z"]]) {
+        const key = createHash("sha256").update(JSON.stringify(["/server.sock", "w1:p1", sessionId])).digest("hex").slice(0, 24);
+        await writeFile(join(dir, `${key}.json`), JSON.stringify({ sessionId, updatedAt, connected: true }));
+        if (sessionId === "old") await writeFile(join(dir, `${key}.pane.json`), JSON.stringify({ paneId: "w1:p2", ready: true }));
+        else if (paneState !== "missing") await writeFile(join(dir, `${key}.pane.json`), paneState === "malformed" ? "{broken" : JSON.stringify({ paneId: "w1:p3", ready: false }));
+      }
+      const run = vi.fn<HerdrCommandRunner>(async (_command, args) => result(JSON.stringify(
+        args.includes("status") ? { server: { socket: "/server.sock" } } : { result: { pane: { pane_id: "w1:p2", terminal_id: "old-live-dag" } } },
+      )));
+      const client = new HerdrCliClient({ run, invocation: { ...invocation, env: { OMO_HERDR_DAG_STATE_DIR: dir } } });
+      await expect(client.findDagPane("w1:p1")).resolves.toBeUndefined();
+      expect(run.mock.calls.some(([, args]) => args.includes("pane"))).toBe(false);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
   test.each([false, true])("discovers only the live DAG associated with this socket and parent (custom directory: %s)", async (customDirectory) => {
     const home = await mkdtemp(join(tmpdir(), "ulw-dag-test-"));
     try {

@@ -80,18 +80,15 @@ export class HerdrCliClient {
       if (this.isRecord(error) && error.code === "ENOENT") return undefined;
       throw error;
     }
-    const candidates: Array<{ paneId: string; updatedAt: string }> = [];
-    for (const file of files.filter((name) => /^[a-f0-9]{24}\.pane\.json$/.test(name))) {
+    const candidates: Array<{ key: string; updatedAt: string }> = [];
+    for (const file of files.filter((name) => /^[a-f0-9]{24}\.json$/.test(name))) {
       const key = file.slice(0, 24);
       try {
         const state: unknown = JSON.parse(await readFile(join(directory, `${key}.json`), "utf8"));
         if (!this.isRecord(state) || typeof state.sessionId !== "string" || state.connected !== true) continue;
         const expected = createHash("sha256").update(JSON.stringify([endpoint.server.socket, parentPane, state.sessionId])).digest("hex").slice(0, 24);
         if (expected !== key) continue;
-        const record: unknown = JSON.parse(await readFile(join(directory, file), "utf8"));
-        if (this.isRecord(record) && record.ready === true && typeof record.paneId === "string") {
-          candidates.push({ paneId: record.paneId, updatedAt: typeof state.updatedAt === "string" ? state.updatedAt : "" });
-        }
+        candidates.push({ key, updatedAt: typeof state.updatedAt === "string" ? state.updatedAt : "" });
       } catch (error) {
         if (error instanceof SyntaxError || (this.isRecord(error) && error.code === "ENOENT")) continue;
         throw error;
@@ -100,11 +97,19 @@ export class HerdrCliClient {
     candidates.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const candidate = candidates[0];
     if (!candidate) return undefined;
-    const result = await this.execute(["pane", "get", candidate.paneId]);
+    let record: unknown;
+    try {
+      record = JSON.parse(await readFile(join(directory, `${candidate.key}.pane.json`), "utf8"));
+    } catch (error) {
+      if (error instanceof SyntaxError || (this.isRecord(error) && error.code === "ENOENT")) return undefined;
+      throw error;
+    }
+    if (!this.isRecord(record) || record.ready !== true || typeof record.paneId !== "string") return undefined;
+    const result = await this.execute(["pane", "get", record.paneId]);
     if (result.code !== 0 && /pane_not_found|unknown pane|pane .*not found/i.test(`${result.stdout} ${result.stderr}`)) return undefined;
     this.throwForFailure(result, "DAG pane get");
     const parsed: unknown = JSON.parse(result.stdout);
-    if (!this.isRecord(parsed) || !this.isRecord(parsed.result) || !this.isRecord(parsed.result.pane) || parsed.result.pane.pane_id !== candidate.paneId || typeof parsed.result.pane.terminal_id !== "string") {
+    if (!this.isRecord(parsed) || !this.isRecord(parsed.result) || !this.isRecord(parsed.result.pane) || parsed.result.pane.pane_id !== record.paneId || typeof parsed.result.pane.terminal_id !== "string") {
       throw new HerdrProtocolError(this.invocation.displayEndpoint, "DAG pane get returned an invalid pane");
     }
     return { terminalId: parsed.result.pane.terminal_id, label: "DAG" };
