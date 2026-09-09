@@ -139,6 +139,42 @@ function createHerdrHarness(options: {
 }
 
 describe("ExtensionLifecycle", () => {
+  it("rejects a Retry selection retained across an endpoint change", async () => {
+    vscode.resetMocks();
+    const { lifecycle, client, controller } = createHerdrHarness({ versionError: new HerdrServerDownError("old", "down") });
+    const api = lifecycle.activate(createContext() as never);
+    await api.refreshExplorer();
+    vscode.window.showWarningMessage.mockImplementationOnce(async () => {
+      vscode.setConfiguration({ "ulw.herdr.socketPath": "/new.sock" });
+      vscode.fireConfigurationChange("ulw.herdr.socketPath");
+      await api.refreshExplorer();
+      client.versionCheck.mockResolvedValue({ version: "0.9.0" });
+      client.listAgents.mockResolvedValue([agent()]);
+      return "Retry";
+    });
+    vscode.window.showQuickPick.mockResolvedValue({ label: "old", agent: agent() });
+    try {
+      await commandHandler<() => Promise<void>>("ulw.attachHerdrSession")();
+      expect(controller.attach).not.toHaveBeenCalled();
+      expect(vscode.window.showQuickPick).not.toHaveBeenCalled();
+    } finally { lifecycle.dispose(); }
+  });
+
+  it("releases endpoint-bound editor controllers before publishing another endpoint", async () => {
+    vscode.resetMocks();
+    const { lifecycle, controller } = createHerdrHarness();
+    const api = lifecycle.activate(createContext() as never);
+    await api.attachToHerdr({ terminalId: "same-id" });
+    try {
+      vscode.setConfiguration({ "ulw.herdr.socketPath": "/new.sock" });
+      vscode.fireConfigurationChange("ulw.herdr.socketPath");
+      expect(controller.dispose).toHaveBeenCalledOnce();
+      expect(api.terminalCount()).toBe(0);
+      await api.attachToHerdr({ terminalId: "same-id" });
+      expect(vscode.window.createWebviewPanel).toHaveBeenCalledTimes(2);
+    } finally { lifecycle.dispose(); }
+  });
+
   it.each(["pending", "failed"] as const)("blocks old-host commands and API while forwarding is %s", async (outcome) => {
     vscode.resetMocks();
     vscode.setConfiguration({ "ulw.herdr.enabled": true });

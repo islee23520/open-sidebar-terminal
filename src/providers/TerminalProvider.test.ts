@@ -160,7 +160,6 @@ describe("TerminalProvider", () => {
       expect(factory).toHaveBeenCalledTimes(2);
       transports[1].output("NEW FULL", "replace");
       transports[1].exit("pane-exited");
-      await Promise.resolve();
       surface.setVisible(false);
       surface.setVisible(true);
       surface.webview.send({ type: "ready", cols: 80, rows: 24 });
@@ -186,7 +185,9 @@ describe("TerminalProvider", () => {
       expect(dag.write).not.toHaveBeenCalled();
       expect(manager.activeSource("sidebar-dag")).toBeUndefined();
       expect(posted(surface.webview).filter((message) => typeof message === "object" && message !== null && "type" in message && ["reset", "output"].includes(String(message.type)))).toEqual([]);
+      surface.webview.send({ type: "resize", cols: 120, rows: 40 });
       dag.output("FULL DAG", "replace");
+      expect(dag.resize).toHaveBeenLastCalledWith(120, 40);
       expect(manager.replay("sidebar-dag")).toBe("FULL DAG");
       expect(posted(surface.webview)).toContainEqual({ type: "reset" });
       expect(posted(surface.webview).filter((message) => typeof message === "object" && message !== null && "type" in message && message.type === "output")).toEqual([{ type: "output", data: "FULL DAG" }]);
@@ -241,8 +242,12 @@ describe("TerminalProvider", () => {
       surface.webview.send({ type: "ready", cols: 80, rows: 24 });
       const pending = provider.refreshDag();
       surface.setVisible(false);
+      surface.webview.send({ type: "ready", cols: 80, rows: 24 });
       resolve({ terminalId: "late-dag" });
       await pending;
+      expect(factory).not.toHaveBeenCalled();
+      surface.setVisible(true);
+      await provider.refreshDag();
       expect(factory).not.toHaveBeenCalled();
       surface.dispose();
       surface.setVisible(true);

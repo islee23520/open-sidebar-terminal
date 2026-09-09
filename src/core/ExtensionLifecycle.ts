@@ -217,6 +217,8 @@ export class ExtensionLifecycle implements vscode.Disposable {
       provider.resetDag();
       this.herdrGeneration += 1;
       const generation = this.herdrGeneration;
+      provider.closeHerdrSessions();
+      this.herdrControllers.clear();
       this.activeForward?.dispose();
       this.activeForward = undefined;
       const configuration = vscode.workspace.getConfiguration("ulw");
@@ -671,7 +673,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
             "The selected Herdr agent is no longer running",
             "Choose Again",
           );
-          if (action === "Choose Again") {
+          if (action === "Choose Again" && generation === this.herdrGeneration && this.herdrReady) {
             await this.attachHerdrSession(client, invocation, makeController, false);
           }
           return;
@@ -679,6 +681,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
         throw error;
       }
     } catch (error) {
+      if (generation !== this.herdrGeneration || !this.herdrReady) return;
       await this.showHerdrFailure(error, client, invocation, makeController);
     }
   }
@@ -742,6 +745,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
     invocation: HerdrInvocation,
     makeController: HerdrControllerFactory,
   ): Promise<void> {
+    const generation = this.herdrGeneration;
     if (error instanceof HerdrNotInstalledError) {
       const action = await vscode.window.showWarningMessage(
         `Herdr executable not found: ${invocation.command}`,
@@ -766,7 +770,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
         `Herdr session ${this.configuredSession()} is not running (${error.displayEndpoint})`,
         "Retry",
       );
-      if (action === "Retry") {
+      if (action === "Retry" && generation === this.herdrGeneration && this.herdrReady) {
         await this.attachHerdrSession(client, invocation, makeController, false);
       }
       return;

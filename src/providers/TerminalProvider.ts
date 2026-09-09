@@ -44,6 +44,7 @@ export class TerminalProvider
   private dagFactory: ((target: HerdrAttachTarget, cols: number, rows: number) => TerminalTransport) | undefined;
   private dagTarget: string | undefined;
   private dagController: HerdrAttachController | undefined;
+  private dagExitSubscription: vscode.Disposable | undefined;
   private dagClosedTarget: string | undefined;
   private dagGeneration = 0;
   private dagRefresh: Promise<void> | undefined;
@@ -196,6 +197,8 @@ export class TerminalProvider
   public resetDag(): void {
     this.dagGeneration += 1;
     this.dagRefresh = undefined;
+    this.dagExitSubscription?.dispose();
+    this.dagExitSubscription = undefined;
     this.dagController?.dispose();
     this.dagController = undefined;
     this.terminalManager.detach(DAG_TERMINAL_ID);
@@ -211,6 +214,8 @@ export class TerminalProvider
     this.dagRefresh = this.dagDiscovery().then((target) => {
       if (generation !== this.dagGeneration || !this.herdrEnabled() || !this.sidebarEnabled() || !this.view?.visible) return;
       if (!target) {
+        this.dagExitSubscription?.dispose();
+        this.dagExitSubscription = undefined;
         this.dagController?.dispose();
         this.dagController = undefined;
         this.terminalManager.detach(DAG_TERMINAL_ID);
@@ -219,6 +224,8 @@ export class TerminalProvider
         return;
       }
       if (target.terminalId === this.dagTarget || target.terminalId === this.dagClosedTarget) return;
+      this.dagExitSubscription?.dispose();
+      this.dagExitSubscription = undefined;
       this.dagController?.dispose();
       this.dagController = undefined;
       this.terminalManager.detach(DAG_TERMINAL_ID);
@@ -228,7 +235,11 @@ export class TerminalProvider
         const controller = new HerdrAttachController({
           manager: this.terminalManager,
           terminalId: DAG_TERMINAL_ID,
-          transportFactory: (candidate, dimensions) => factory(candidate, dimensions.cols, dimensions.rows),
+          transportFactory: (candidate, dimensions) => {
+            const transport = factory(candidate, dimensions.cols, dimensions.rows);
+            this.dagExitSubscription = transport.onExit(() => { this.dagClosedTarget = candidate.terminalId; });
+            return transport;
+          },
           presenter: {
             postReset: () => this.postToSurface("sidebar", { type: "reset" }),
             postOutput: (data) => this.postToSurface("sidebar", { type: "output", data }),
@@ -238,6 +249,7 @@ export class TerminalProvider
                 this.dagTarget = undefined;
                 this.showDagMessage(state.message ?? "DAG control unavailable. Refresh to retry.");
               } else if (state.source === "herdr") {
+                if (state.phase === "attached") this.terminalManager.resize(DAG_TERMINAL_ID, this.dagDimensions.cols, this.dagDimensions.rows);
                 this.postToSurface("sidebar", { type: "sourceState", ...state, label: "DAG" });
               }
             },
@@ -248,6 +260,8 @@ export class TerminalProvider
       }
     }).catch((error: unknown) => {
       if (generation !== this.dagGeneration) return;
+      this.dagExitSubscription?.dispose();
+      this.dagExitSubscription = undefined;
       this.dagController?.dispose();
       this.dagController = undefined;
       this.terminalManager.detach(DAG_TERMINAL_ID);
@@ -269,6 +283,10 @@ export class TerminalProvider
 
   private herdrEnabled(): boolean {
     return vscode.workspace.getConfiguration("ulw").get<boolean>("herdr.enabled", false);
+  }
+
+  public closeHerdrSessions(): void {
+    for (const session of [...this.herdrSessions.values()]) session.panel.dispose();
   }
 
   public async openHerdrSession(
@@ -479,6 +497,7 @@ export class TerminalProvider
   }
 
   private handleMessage(message: WebviewMessage, source: TerminalLocation): void {
+    if (source === "sidebar" && this.herdrEnabled() && !this.view?.visible) return;
     if (source === "sidebar" && this.view) {
       if (message.type === "ready") this.dagReady = true;
       if (message.type === "ready" || message.type === "resize") {
