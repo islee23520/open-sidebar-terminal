@@ -163,6 +163,62 @@ describe("TerminalProvider", () => {
     }
   });
 
+  it("releases the active tab DAG and discovers the remaining agent on close", async () => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    const transports: FakeHerdrTransport[] = [];
+    provider.configureDag(async () => provider.activeSessionId() === "sidebar-shell" ? undefined : { terminalId: `dag-${provider.activeSessionId()}` }, () => {
+      const transport = new FakeHerdrTransport();
+      transports.push(transport);
+      return transport;
+    });
+    const { view, webview } = createView();
+    provider.resolveWebviewView(view as never);
+    webview.send({ type: "ready", cols: 80, rows: 24 });
+    const createController = (terminalId: string, presenter: HerdrAttachPresenter) => new HerdrAttachController({ manager, terminalId, presenter, transportFactory: () => new FakeHerdrTransport() });
+    try {
+      await provider.openHerdrSession({ terminalId: "first" }, async () => undefined, createController);
+      await provider.refreshDag();
+      await provider.openHerdrSession({ terminalId: "second" }, async () => undefined, createController);
+      await provider.refreshDag();
+      const activeDag = transports[transports.length - 1];
+      const secondPanel = lastResult(vscode.window.createWebviewPanel.mock.results)?.value as vscode.MockWebviewPanel;
+      secondPanel.dispose();
+      expect(activeDag.close).toHaveBeenCalledOnce();
+      await provider.refreshDag();
+      expect(provider.activeSessionId()).toBe(herdrSessionId("first"));
+      const fallbackDag = transports[transports.length - 1];
+      const firstPanel = vscode.window.createWebviewPanel.mock.results[0].value;
+      firstPanel.dispose();
+      expect(fallbackDag.close).toHaveBeenCalledOnce();
+      await provider.refreshDag();
+      expect(manager.activeSource("sidebar-dag")).toBeUndefined();
+    } finally {
+      provider.dispose();
+      manager.dispose();
+    }
+  });
+
+  it("disposes a pending agent attachment when Herdr is disabled", async () => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    const transport = new FakeHerdrTransport();
+    const controller = new HerdrAttachController({ manager, terminalId: herdrSessionId("pending"), presenter: provider, transportFactory: () => transport });
+    const opening = provider.openHerdrSession({ terminalId: "pending" }, (target) => controller.attach(target, { cols: 80, rows: 24 }), () => controller);
+    try {
+      vscode.setConfiguration({ "ulw.herdr.enabled": false });
+      vscode.fireConfigurationChange("ulw.herdr.enabled");
+      expect(transport.close).toHaveBeenCalledOnce();
+      expect(provider.herdrSessionCount()).toBe(0);
+    } finally {
+      provider.dispose();
+      manager.dispose();
+      await opening;
+    }
+  });
+
   it("attaches DAG when an already-ready shell sidebar enables Herdr and reuses shell on disable", async () => {
     vscode.setConfiguration({ "ulw.herdr.enabled": false, "ulw.defaultLocation": "sidebar" });
     const manager = new TerminalManager();

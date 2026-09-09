@@ -113,6 +113,7 @@ export class TerminalProvider
         if (event.affectsConfiguration("ulw.herdr") || event.affectsConfiguration("ulw.sidebar.enabled")) {
           this.resetDag();
           if (!this.herdrEnabled()) {
+            for (const session of [...this.herdrSessions.values()]) session.panel.dispose();
             this.openAtConfiguredLocation();
             if (this.view) this.view.title = "Terminal";
             if (this.view) this.view.webview.html = this.renderHtml(this.view.webview);
@@ -300,6 +301,8 @@ export class TerminalProvider
         const remaining = [...this.herdrSessions.keys()];
         this.activeTerminalId =
           remaining.length > 0 ? remaining[remaining.length - 1] : TERMINAL_ID;
+        this.resetDag();
+        if (!this.disposing) void this.refreshDag();
       }
     });
     panel.webview.html = this.renderHtml(panel.webview);

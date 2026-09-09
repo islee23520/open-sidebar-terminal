@@ -139,6 +139,22 @@ function createHerdrHarness(options: {
 }
 
 describe("ExtensionLifecycle", () => {
+  it("ignores the nested attach picker after disabling Herdr", async () => {
+    vscode.resetMocks();
+    const { lifecycle, controller } = createHerdrHarness({ agents: [agent()] });
+    const api = lifecycle.activate(createContext() as never);
+    await api.refreshExplorer();
+    vscode.window.showQuickPick.mockResolvedValueOnce({ label: "Attach Agent...", action: "attach" });
+    vscode.window.showQuickPick.mockImplementationOnce(async () => {
+      vscode.setConfiguration({ "ulw.herdr.enabled": false });
+      vscode.fireConfigurationChange("ulw.herdr.enabled");
+      return { label: "Agent one", agent: agent() };
+    });
+    await commandHandler<() => Promise<void>>("ulw.herdr.showMenu")();
+    expect(controller.attach).not.toHaveBeenCalled();
+    lifecycle.dispose();
+  });
+
   it("Open DAG enables a disabled sidebar and reveals the container", async () => {
     vscode.resetMocks();
     const { lifecycle } = createHerdrHarness();

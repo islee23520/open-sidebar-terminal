@@ -610,6 +610,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
     makeController: HerdrControllerFactory,
     showInvocationWarnings = true,
   ): Promise<void> {
+    const generation = this.herdrGeneration;
     if (showInvocationWarnings) {
       for (const warning of invocation.warnings) {
         await vscode.window.showWarningMessage(warning);
@@ -618,7 +619,9 @@ export class ExtensionLifecycle implements vscode.Disposable {
 
     try {
       await client.versionCheck();
+      if (generation !== this.herdrGeneration || !this.herdrEnabled() || !this.provider) return;
       const agents = await client.listAgents();
+      if (generation !== this.herdrGeneration || !this.herdrEnabled() || !this.provider) return;
       const session = this.configuredSession();
       const items = agents.map((entry) => this.quickPickItem(entry));
       const selected = await vscode.window.showQuickPick(items, {
@@ -630,7 +633,7 @@ export class ExtensionLifecycle implements vscode.Disposable {
         matchOnDescription: true,
         matchOnDetail: true,
       });
-      if (!selected) {
+      if (!selected || generation !== this.herdrGeneration || !this.herdrEnabled() || !this.provider) {
         return;
       }
 
