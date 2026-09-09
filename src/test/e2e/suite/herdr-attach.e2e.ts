@@ -198,10 +198,10 @@ suite("Live Herdr terminal attach", () => {
     await fs.mkdir(EVIDENCE_DIR, { recursive: true });
 
     const version = await runHerdr(["--version"]);
-    assert.match(
-      version.stdout,
-      /^herdr 0\.8\./,
-      `Live suite requires Herdr 0.8.x, got ${version.stdout.trim()}`,
+    const parsedVersion = /^herdr (\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?\s*$/.exec(version.stdout);
+    assert.ok(
+      parsedVersion && (Number(parsedVersion[1]) > 0 || Number(parsedVersion[2]) >= 8),
+      `Live suite requires Herdr 0.8.0 or newer, got ${version.stdout.trim()}`,
     );
 
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ulw-e2e-"));
@@ -415,10 +415,10 @@ suite("Live Herdr terminal attach", () => {
       (state) => state.phase === "error",
       "sourceState error for a dead Herdr terminal",
     );
-    await api.attachToHerdr({
+    await assert.rejects(api.attachToHerdr({
       terminalId: scratch.deadTerminalId,
       label: "dead-ulw-e2e",
-    });
+    }), Error);
     const errorState = await attachError;
     assert.strictEqual(errorState.source, "shell");
     assert.strictEqual(api.getSurfaceSnapshot().sourceState.phase, "shell");

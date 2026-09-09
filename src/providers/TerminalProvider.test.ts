@@ -33,9 +33,10 @@ interface TestWebview {
 function lastResult<T>(results: readonly { value: T }[]) {
   return results[results.length - 1];
 }
-function createView(): { readonly view: unknown; readonly webview: TestWebview } {
+function createView() {
   const messageEmitter = new vscode.EventEmitter<WebviewMessage>();
   const disposeEmitter = new vscode.EventEmitter<void>();
+  const visibilityEmitter = new vscode.EventEmitter<void>();
   const webview: TestWebview = {
     html: "",
     options: undefined,
@@ -45,12 +46,12 @@ function createView(): { readonly view: unknown; readonly webview: TestWebview }
     onDidReceiveMessage: messageEmitter.event,
     send: (message) => messageEmitter.fire(message),
   };
+  const view = { webview, visible: true, onDidDispose: disposeEmitter.event, onDidChangeVisibility: visibilityEmitter.event };
   return {
-    view: {
-      webview,
-      onDidDispose: disposeEmitter.event,
-    },
+    view,
     webview,
+    dispose: () => disposeEmitter.fire(),
+    setVisible: (visible: boolean) => { view.visible = visible; visibilityEmitter.fire(); },
   };
 }
 
@@ -131,6 +132,371 @@ describe("TerminalProvider", () => {
   beforeEach(() => {
     vscode.resetMocks();
     vscode.setConfiguration({ "ulw.sidebar.enabled": true });
+  });
+
+  it("releases hidden DAG ownership and rediscovers on reveal without reopening a closed pane", async () => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    const transports: FakeHerdrTransport[] = [];
+    const factory = vi.fn(() => { const transport = new FakeHerdrTransport(); transports.push(transport); return transport; });
+    provider.configureDag(async () => ({ terminalId: "visible-dag" }), factory);
+    const surface = createView();
+    provider.resolveWebviewView(surface.view as never);
+    try {
+      surface.webview.send({ type: "ready", cols: 80, rows: 24 });
+      await provider.refreshDag();
+      transports[0].output("FULL", "replace");
+      surface.setVisible(false);
+      expect(transports[0].close).toHaveBeenCalledOnce();
+      expect(manager.activeSource("sidebar-dag")).toBeUndefined();
+      surface.webview.send({ type: "input", data: "q" });
+      expect(transports[0].write).not.toHaveBeenCalled();
+      surface.setVisible(true);
+      await provider.refreshDag();
+      expect(factory).toHaveBeenCalledOnce();
+      surface.webview.send({ type: "ready", cols: 80, rows: 24 });
+      await provider.refreshDag();
+      expect(factory).toHaveBeenCalledTimes(2);
+      transports[1].output("NEW FULL", "replace");
+      transports[1].exit("pane-exited");
+      surface.setVisible(false);
+      surface.setVisible(true);
+      surface.webview.send({ type: "ready", cols: 80, rows: 24 });
+      await provider.refreshDag();
+      expect(factory).toHaveBeenCalledTimes(2);
+    } finally { provider.dispose(); manager.dispose(); }
+  });
+
+  it("keeps DAG input and partial frames staged until atomic full-frame cutover", async () => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    const dag = new FakeHerdrTransport();
+    provider.configureDag(async () => ({ terminalId: "staged-dag" }), () => dag);
+    const surface = createView();
+    provider.resolveWebviewView(surface.view as never);
+    surface.webview.send({ type: "ready", cols: 80, rows: 24 });
+    surface.webview.postMessage.mockClear();
+    try {
+      await provider.refreshDag();
+      surface.webview.send({ type: "input", data: "q" });
+      dag.output("PARTIAL", "append");
+      expect(dag.write).not.toHaveBeenCalled();
+      expect(manager.activeSource("sidebar-dag")).toBeUndefined();
+      expect(posted(surface.webview).filter((message) => typeof message === "object" && message !== null && "type" in message && ["reset", "output"].includes(String(message.type)))).toEqual([]);
+      surface.webview.send({ type: "resize", cols: 120, rows: 40 });
+      dag.output("FULL DAG", "replace");
+      expect(dag.resize).toHaveBeenLastCalledWith(120, 40);
+      expect(manager.replay("sidebar-dag")).toBe("FULL DAG");
+      expect(posted(surface.webview)).toContainEqual({ type: "reset" });
+      expect(posted(surface.webview).filter((message) => typeof message === "object" && message !== null && "type" in message && message.type === "output")).toEqual([{ type: "output", data: "FULL DAG" }]);
+      surface.webview.send({ type: "input", data: "j" });
+      expect(dag.write.mock.calls).toEqual([["j"]]);
+    } finally { provider.dispose(); manager.dispose(); }
+    expect(dag.close).toHaveBeenCalledOnce();
+  });
+
+  it.each(["hide", "dispose", "switch", "error"] as const)("releases a staged DAG on %s and never publishes its late frame", async (action) => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    const staged = new FakeHerdrTransport();
+    const next = new FakeHerdrTransport();
+    const discover = vi.fn().mockResolvedValue({ terminalId: "staged" });
+    const factory = vi.fn().mockReturnValueOnce(staged).mockReturnValue(next);
+    provider.configureDag(discover, factory);
+    const surface = createView();
+    provider.resolveWebviewView(surface.view as never);
+    surface.webview.send({ type: "ready", cols: 80, rows: 24 });
+    await provider.refreshDag();
+    try {
+      expect(manager.activeSource("sidebar-dag")).toBeUndefined();
+      if (action === "hide") surface.setVisible(false);
+      if (action === "dispose") surface.dispose();
+      if (action === "switch") { discover.mockResolvedValue({ terminalId: "next" }); await provider.refreshDag(); }
+      if (action === "error") { staged.exit("protocol-error", "bad frame"); await Promise.resolve(); }
+      expect(staged.close).toHaveBeenCalledOnce();
+      surface.webview.postMessage.mockClear();
+      staged.output("LATE OLD", "replace");
+      expect(posted(surface.webview)).not.toContainEqual({ type: "output", data: "LATE OLD" });
+      if (action === "switch") { next.output("NEW DAG", "replace"); expect(manager.replay("sidebar-dag")).toBe("NEW DAG"); }
+    } finally { provider.dispose(); manager.dispose(); }
+  });
+
+  it("invalidates hidden inflight discovery and waits for the revealed document readiness", async () => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    let resolve: (target: { terminalId: string }) => void = () => undefined;
+    const target = new Promise<{ terminalId: string }>((done) => { resolve = done; });
+    const factory = vi.fn(() => new FakeHerdrTransport());
+    provider.configureDag(() => target, factory);
+    const surface = createView();
+    surface.setVisible(false);
+    provider.resolveWebviewView(surface.view as never);
+    try {
+      surface.setVisible(true);
+      await provider.refreshDag();
+      expect(factory).not.toHaveBeenCalled();
+      surface.webview.send({ type: "ready", cols: 80, rows: 24 });
+      const pending = provider.refreshDag();
+      surface.setVisible(false);
+      surface.webview.send({ type: "ready", cols: 80, rows: 24 });
+      resolve({ terminalId: "late-dag" });
+      await pending;
+      expect(factory).not.toHaveBeenCalled();
+      surface.setVisible(true);
+      await provider.refreshDag();
+      expect(factory).not.toHaveBeenCalled();
+      surface.dispose();
+      surface.setVisible(true);
+      surface.webview.send({ type: "ready", cols: 80, rows: 24 });
+      await provider.refreshDag();
+      expect(factory).not.toHaveBeenCalled();
+    } finally { provider.dispose(); manager.dispose(); }
+  });
+
+  it("starts current DAG discovery without waiting for an invalidated request", async () => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    let finishOld: (target: { terminalId: string }) => void = () => undefined;
+    const old = new Promise<{ terminalId: string }>((resolve) => { finishOld = resolve; });
+    const discover = vi.fn().mockReturnValueOnce(old).mockResolvedValue({ terminalId: "current-dag" });
+    const factory = vi.fn(() => new FakeHerdrTransport());
+    provider.configureDag(discover, factory);
+    const { view, webview } = createView();
+    provider.resolveWebviewView(view as never);
+    webview.send({ type: "ready", cols: 80, rows: 24 });
+    const pending = provider.refreshDag();
+    provider.resetDag();
+    const current = provider.refreshDag();
+    try {
+      expect(discover).toHaveBeenCalledTimes(2);
+      finishOld({ terminalId: "old-dag" });
+      await Promise.all([pending, current]);
+      expect(factory).toHaveBeenCalledOnce();
+      expect(factory).toHaveBeenCalledWith({ terminalId: "current-dag" }, 80, 24);
+    } finally {
+      finishOld({ terminalId: "old-dag" });
+      await pending;
+      provider.dispose();
+      manager.dispose();
+    }
+  });
+
+  it("releases the active tab DAG and discovers the remaining agent on close", async () => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    const transports: FakeHerdrTransport[] = [];
+    provider.configureDag(async () => provider.activeSessionId() === "sidebar-shell" ? undefined : { terminalId: `dag-${provider.activeSessionId()}` }, () => {
+      const transport = new FakeHerdrTransport();
+      transports.push(transport);
+      return transport;
+    });
+    const { view, webview } = createView();
+    provider.resolveWebviewView(view as never);
+    webview.send({ type: "ready", cols: 80, rows: 24 });
+    const createController = (terminalId: string, presenter: HerdrAttachPresenter) => new HerdrAttachController({ manager, terminalId, presenter, transportFactory: () => new FakeHerdrTransport() });
+    try {
+      await provider.openHerdrSession({ terminalId: "first" }, async () => undefined, createController);
+      await provider.refreshDag();
+      await provider.openHerdrSession({ terminalId: "second" }, async () => undefined, createController);
+      await provider.refreshDag();
+      const activeDag = transports[transports.length - 1];
+      const secondPanel = lastResult(vscode.window.createWebviewPanel.mock.results)?.value as vscode.MockWebviewPanel;
+      secondPanel.dispose();
+      expect(activeDag.close).toHaveBeenCalledOnce();
+      await provider.refreshDag();
+      expect(provider.activeSessionId()).toBe(herdrSessionId("first"));
+      const fallbackDag = transports[transports.length - 1];
+      const firstPanel = vscode.window.createWebviewPanel.mock.results[0].value;
+      firstPanel.dispose();
+      expect(fallbackDag.close).toHaveBeenCalledOnce();
+      await provider.refreshDag();
+      expect(manager.activeSource("sidebar-dag")).toBeUndefined();
+    } finally {
+      provider.dispose();
+      manager.dispose();
+    }
+  });
+
+  it("disposes a pending agent attachment when Herdr is disabled", async () => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    const transport = new FakeHerdrTransport();
+    const controller = new HerdrAttachController({ manager, terminalId: herdrSessionId("pending"), presenter: provider, transportFactory: () => transport });
+    const opening = provider.openHerdrSession({ terminalId: "pending" }, (target) => controller.attach(target, { cols: 80, rows: 24 }), () => controller);
+    try {
+      vscode.setConfiguration({ "ulw.herdr.enabled": false });
+      vscode.fireConfigurationChange("ulw.herdr.enabled");
+      expect(transport.close).toHaveBeenCalledOnce();
+      expect(provider.herdrSessionCount()).toBe(0);
+    } finally {
+      provider.dispose();
+      manager.dispose();
+      await opening;
+    }
+  });
+
+  it("attaches DAG when an already-ready shell sidebar enables Herdr and reuses shell on disable", async () => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": false, "ulw.defaultLocation": "sidebar" });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    const dag = new FakeHerdrTransport();
+    const factory = vi.fn(() => dag);
+    provider.configureDag(async () => ({ terminalId: "dag-terminal" }), factory);
+    const { view, webview } = createView();
+    try {
+      provider.resolveWebviewView(view as never);
+      webview.send({ type: "ready", cols: 57, rows: 29 });
+      const shell = lastResult(nodePty.spawn.mock.results)?.value as ptyMock.MockPtyProcess;
+      vscode.setConfiguration({ "ulw.herdr.enabled": true });
+      vscode.fireConfigurationChange("ulw.herdr.enabled");
+      await provider.refreshDag();
+      expect(factory).toHaveBeenCalledWith({ terminalId: "dag-terminal" }, 57, 29);
+      dag.output("DAG AFTER ENABLE", "replace");
+      expect(posted(webview)).toContainEqual({ type: "output", data: "DAG AFTER ENABLE" });
+      vscode.setConfiguration({ "ulw.herdr.enabled": false });
+      vscode.fireConfigurationChange("ulw.herdr.enabled");
+      webview.send({ type: "ready", cols: 57, rows: 29 });
+      shell.emitData("SAME SHELL AFTER DISABLE");
+      expect(posted(webview)).toContainEqual({ type: "output", data: "SAME SHELL AFTER DISABLE" });
+      expect(nodePty.spawn).toHaveBeenCalledOnce();
+      expect(dag.close).toHaveBeenCalledOnce();
+      expect(manager.activeSource("sidebar-dag")).toBeUndefined();
+    } finally {
+      provider.dispose();
+      manager.dispose();
+    }
+  });
+
+  it("does not attach after the ready shell sidebar is disposed before enabling Herdr", async () => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": false });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    const factory = vi.fn(() => new FakeHerdrTransport());
+    provider.configureDag(async () => ({ terminalId: "dag-terminal" }), factory);
+    const surface = createView();
+    try {
+      provider.resolveWebviewView(surface.view as never);
+      surface.webview.send({ type: "ready", cols: 57, rows: 29 });
+      surface.dispose();
+      vscode.setConfiguration({ "ulw.herdr.enabled": true });
+      vscode.fireConfigurationChange("ulw.herdr.enabled");
+      await provider.refreshDag();
+      expect(factory).not.toHaveBeenCalled();
+    } finally {
+      provider.dispose();
+      manager.dispose();
+    }
+  });
+
+  it("shows the DAG only in the sidebar and isolates its input, resize and scroll", async () => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    const dag = new FakeHerdrTransport();
+    const factory = vi.fn(() => dag);
+    provider.configureDag(async () => ({ terminalId: "dag-terminal", label: "DAG" }), factory);
+    const { view, webview } = createView();
+    provider.resolveWebviewView(view as never);
+    webview.send({ type: "ready", cols: 47, rows: 31 });
+    await provider.refreshDag();
+    dag.output("REAL DAG FRAME", "replace");
+    expect(posted(webview)).toContainEqual({ type: "output", data: "REAL DAG FRAME" });
+    expect(manager.activeSource("sidebar-shell")).toBeUndefined();
+    expect(vscode.window.createWebviewPanel).not.toHaveBeenCalled();
+    webview.send({ type: "input", data: "j" });
+    webview.send({ type: "resize", cols: 51, rows: 33 });
+    const gesture = { type: "scroll", direction: "down", lines: 3, source: "wheel", column: 2, row: 3, modifiers: 0 } as const;
+    webview.send(gesture);
+    expect(dag.write).toHaveBeenCalledWith("j");
+    expect(dag.resize).toHaveBeenCalledWith(51, 33);
+    expect(dag.scroll).toHaveBeenCalledWith(gesture);
+    await provider.refreshDag();
+    expect(factory).toHaveBeenCalledOnce();
+    dag.exit("pane-exited");
+    await provider.refreshDag();
+    expect(factory).toHaveBeenCalledOnce();
+    expect(posted(webview)).toContainEqual(expect.objectContaining({ type: "sourceState", phase: "error" }));
+    provider.dispose();
+    manager.dispose();
+  });
+
+  it("ignores stale DAG discovery after disabling Herdr and restores the shell", async () => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": true, "ulw.defaultLocation": "sidebar" });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    let resolve!: (target: { terminalId: string }) => void;
+    const pending = new Promise<{ terminalId: string }>((done) => { resolve = done; });
+    const factory = vi.fn(() => new FakeHerdrTransport());
+    provider.configureDag(() => pending, factory);
+    const { view, webview } = createView();
+    provider.resolveWebviewView(view as never);
+    webview.send({ type: "ready", cols: 80, rows: 24 });
+    const refresh = provider.refreshDag();
+    vscode.setConfiguration({ "ulw.herdr.enabled": false });
+    vscode.fireConfigurationChange("ulw.herdr.enabled");
+    resolve({ terminalId: "stale-dag" });
+    await refresh;
+    expect(factory).not.toHaveBeenCalled();
+    webview.send({ type: "ready", cols: 80, rows: 24 });
+    expect(manager.activeSource("sidebar-shell")).toBe("local-shell");
+    provider.dispose();
+    manager.dispose();
+  });
+
+  it("does not forward hidden-sidebar messages to the live DAG", async () => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    const dag = new FakeHerdrTransport();
+    provider.configureDag(async () => ({ terminalId: "dag-terminal" }), () => dag);
+    const { view, webview } = createView();
+    provider.resolveWebviewView(view as never);
+    webview.send({ type: "ready", cols: 80, rows: 24 });
+    await provider.refreshDag();
+    vscode.setConfiguration({ "ulw.sidebar.enabled": false });
+    webview.send({ type: "input", data: "j" });
+    webview.send({ type: "resize", cols: 2, rows: 2 });
+    expect(dag.write).not.toHaveBeenCalled();
+    expect(dag.resize).not.toHaveBeenCalled();
+    provider.dispose();
+    manager.dispose();
+  });
+
+  it("does not give DAG input to an agent editor or agent output to the DAG", async () => {
+    vscode.setConfiguration({ "ulw.herdr.enabled": true });
+    const manager = new TerminalManager();
+    const provider = new TerminalProvider(extensionUri, manager);
+    const dag = new FakeHerdrTransport();
+    const agent = new FakeHerdrTransport();
+    provider.configureDag(async () => ({ terminalId: "dag-terminal" }), () => dag);
+    const { view, webview } = createView();
+    provider.resolveWebviewView(view as never);
+    webview.send({ type: "ready", cols: 48, rows: 30 });
+    await provider.refreshDag();
+    await provider.openHerdrSession({ terminalId: "agent-terminal" }, async () => undefined,
+      (terminalId, presenter) => new HerdrAttachController({ manager, terminalId, presenter, transportFactory: () => agent }));
+    await provider.refreshDag();
+    manager.attach(herdrSessionId("agent-terminal"), () => agent);
+    const panel = lastResult(vscode.window.createWebviewPanel.mock.results)?.value as vscode.MockWebviewPanel;
+    webview.postMessage.mockClear();
+    panel.webview.postMessage.mockClear();
+    dag.output("DAG ONLY", "replace");
+    agent.output("AGENT ONLY", "replace");
+    webview.send({ type: "input", data: "j" });
+    panel.webview.send({ type: "input", data: "agent-input" });
+    expect(dag.write.mock.calls).toEqual([["j"]]);
+    expect(agent.write.mock.calls).toEqual([["agent-input"]]);
+    expect(posted(webview)).not.toContainEqual({ type: "output", data: "AGENT ONLY" });
+    expect(posted(panel.webview)).not.toContainEqual({ type: "output", data: "DAG ONLY" });
+    provider.dispose();
+    manager.dispose();
   });
 
   describe("Herdr controller integration", () => {

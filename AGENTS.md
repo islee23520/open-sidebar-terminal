@@ -2,7 +2,7 @@
 
 ## OVERVIEW
 
-VS Code extension that runs one native shell terminal in the secondary sidebar or an editor-group tab. With Herdr off, the host owns one persistent `node-pty` shell PTY on one active xterm surface. With Herdr on, the sidebar terminal is hidden and each attached agent gets its own editor-group webview plus one control-bridge child.
+VS Code extension that runs one native shell terminal in the secondary sidebar or an editor-group tab. With Herdr off, the host owns one persistent `node-pty` shell PTY on one active xterm surface. With Herdr on, the sidebar shows the existing parent-associated omo-herdr-dag pane and each attached agent gets its own editor-group webview plus one control-bridge child.
 
 ## SOURCE TOPOLOGY
 
@@ -41,7 +41,7 @@ Herdr off:
   editor:  ulw.defaultLocation=editor (default) | ulw.toggleEditorLocation -> one shared webview panel
     -> TerminalManager creates or resizes `sidebar-shell`
 Herdr on:
-  sidebar terminal hidden (`when: config.ulw.sidebar.enabled && !config.ulw.herdr.enabled`)
+  sidebar: existing plugin DAG through a separate `sidebar-dag` control bridge (when `ulw.sidebar.enabled`)
   Activity Bar Spaces/Agents -> agent click in this window opens/reveals an editor-group tab per agent
     -> one control-bridge child per attached agent -> first-full-frame atomic cutover
     -> detach/external closure closes that session without restoring a local shell
@@ -52,7 +52,8 @@ Herdr on:
 - Webview to host: `ready`, `input`, `resize`, `copy`, `imagePasted`.
 - Host to webview: `output`, `exit`, `config`, `focus`, `clipboardImage`, `reset`, `sourceState`.
 - Herdr off: one persistent shell PTY; one active surface (sidebar or one editor panel).
-- Herdr on: no sidebar terminal; one editor-group tab and one Herdr bridge child per attached agent.
+- Herdr on: existing plugin DAG in sidebar; one editor-group tab and one Herdr bridge child per attached agent.
+- DAG discovery verifies plugin socket/parent/session hash and live pane identity; never guess titles, spawn panes, or read local metadata for a forwarded remote host. Closed DAG control is not automatically reattached.
 - Input and resize target the currently ACTIVE surface only.
 - `ulw.toggleEditorLocation` moves the shared shell between surfaces only while Herdr is off.
 
@@ -63,7 +64,7 @@ Herdr on:
 - Keep `node-pty` as the only runtime dependency. xterm and the fit addon are build-time dependencies bundled into `webview.js`.
 - Herdr attach is allowed only through official CLI bridge children using builtin `child_process`; no raw socket client, no agent start/rename, no auto-start/reconnect/reattach. Herdr commands and the Activity Bar Spaces/Agents tree stay hidden until `ulw.herdr.enabled` is true. Then the tree lists live workspaces, opens each clicked agent in this window as its own editor-group tab, and opens another Space's folder in a new VS Code window.
 - With Herdr off: one editor panel max for the shared shell; never spawn a second PTY for editor mode.
-- With Herdr on: hide the ULW sidebar terminal; open each agent in its own editor-group tab; do not restore a local shell on detach.
+- With Herdr on: show the existing DAG in the ULW sidebar, not a local shell; open each agent in its own editor-group tab; do not restore a local shell on detach.
 - Honor `ulw.defaultLocation` (`editor` default | `sidebar`); toggle always overrides the current surface.
 - Use project scripts for verification.
 

@@ -37,7 +37,7 @@
           "id": "ulwContainer",
           "title": "ULW",
           "icon": "resources/ulwcode-sidebar.svg",
-          "when": "config.ulw.sidebar.enabled && !config.ulw.herdr.enabled"
+          "when": "config.ulw.sidebar.enabled"
         }
       ]
     },
@@ -48,7 +48,7 @@
           "name": "Terminal",
           "type": "webview",
           "icon": "resources/ulwcode-sidebar.svg",
-          "when": "config.ulw.sidebar.enabled && !config.ulw.herdr.enabled"
+          "when": "config.ulw.sidebar.enabled"
         }
       ],
       "ulwHerdr": [
@@ -107,9 +107,25 @@
         "title": "ULW: Refresh Herdr Explorer",
         "category": "ULW",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "ulw.herdr.showMenu",
+        "title": "ULW: Manage Herdr Agents",
+        "category": "ULW",
+        "enablement": "config.ulw.herdr.enabled"
+      },
+      {
+        "command": "ulw.herdr.openDag",
+        "title": "ULW: Open Herdr DAG",
+        "category": "ULW",
+        "enablement": "config.ulw.herdr.enabled"
       }
     ],
     "menus": {
+      "commandPalette": [
+        { "command": "ulw.herdr.showMenu", "when": "config.ulw.herdr.enabled" },
+        { "command": "ulw.herdr.openDag", "when": "config.ulw.herdr.enabled" }
+      ],
       "editor/context": [
         {
           "command": "ulw.sendSelectionToTerminal",
@@ -125,7 +141,7 @@
       "view/title": [
         {
           "command": "ulw.toggleEditorLocation",
-          "when": "view == ulw",
+          "when": "view == ulw && !config.ulw.herdr.enabled",
           "group": "navigation"
         },
         {

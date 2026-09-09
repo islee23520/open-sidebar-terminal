@@ -2,7 +2,7 @@
 
 ULW is a small VS Code extension that runs one native shell terminal in the secondary sidebar or an editor-group tab.
 
-With Herdr integration off, opening ULW creates one `node-pty` process connected to one xterm.js surface. With `ulw.herdr.enabled`, the ULW sidebar terminal is hidden; Spaces/Agents live in the Activity Bar, and each agent opens in its own editor-group tab.
+With Herdr integration off, opening ULW creates one `node-pty` process connected to one xterm.js surface. With `ulw.herdr.enabled`, the secondary sidebar shows the selected agent's existing OMO DAG pane; Spaces/Agents live in the Activity Bar, and each agent opens in its own editor-group tab.
 
 ## Use
 
@@ -20,9 +20,13 @@ Herdr integration is off until you set `ulw.herdr.enabled` (Settings: **ULW › 
 
 - The picker and trees are populated from the Herdr CLI `agent list` / `workspace list` output, and ULW warns when takeover will replace other direct Herdr clients.
 - Taking control is not auto-restored to those other clients; ULW owns the session only while attached.
-- Any attach failure or external closure restores the local shell automatically.
+- Attach failure, detach, or external closure closes that agent's attached editor session without starting a local shell while Herdr is enabled.
 
-Use **ULW: Detach Herdr Session** (`ulw.detachHerdrSession`) to release ULW's controller and restore the local shell. A previously displaced direct Herdr client is not automatically restored.
+Use **ULW: Detach Herdr Session** (`ulw.detachHerdrSession`) to release the active agent's control bridge. The remote agent keeps running. A previously displaced direct Herdr client is not automatically restored.
+
+The DAG sidebar uses the existing OMO plugin pane associated with the active agent, or the sole agent in the current folder. Open that pane from OMO with `/dag-pane` first. ULW does not create a DAG pane or render a second graph. Discovery verifies the server, parent session and live pane identity; missing or closed panes show an unavailable message. Refresh explicitly to retry closed control. Same-host discovery honors `OMO_HERDR_DAG_STATE_DIR`; SSH-forwarded hosts cannot use local plugin metadata.
+
+Click **Herdr** in the status bar to switch agents or choose **Attach Agent...**, **Detach Active Agent**, **Refresh**, or **Open DAG** in a native QuickPick. Selecting an agent opens or reveals its own editor tab in this window. **Open DAG** enables the ULW sidebar when disabled and reveals the existing DAG view; it does not create a plugin pane. The status entry and management commands are hidden while Herdr integration is off. Management never creates, renames, or terminates remote agents.
 
 The terminal automatically inherits the active VS Code terminal palette, including ANSI colors, cursor colors, selections, and live theme changes. Drag-selecting terminal text copies the finished selection to the system clipboard.
 
@@ -38,6 +42,8 @@ The terminal automatically inherits the active VS Code terminal palette, includi
 | `ulw.herdr.openAgent` | Attach the selected Activity Bar agent |
 | `ulw.herdr.openSpace` | Open that Space's folder in this window or a new window |
 | `ulw.herdr.refreshExplorer` | Refresh Spaces and Agents lists |
+| `ulw.herdr.showMenu` | Switch agents or manage attachments from a native QuickPick |
+| `ulw.herdr.openDag` | Enable and reveal the existing DAG sidebar |
 
 ## Settings
 
