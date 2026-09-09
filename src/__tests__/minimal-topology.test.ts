@@ -116,7 +116,7 @@ describe("minimal sidebar terminal topology", () => {
       expect.arrayContaining([
         expect.objectContaining({
           command: "ulw.toggleEditorLocation",
-          when: "view == ulw",
+          when: "view == ulw && !config.ulw.herdr.enabled",
           group: "navigation",
         }),
         expect.objectContaining({
